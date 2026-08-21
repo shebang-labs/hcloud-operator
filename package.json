@@ -1,0 +1,59 @@
+{
+    "name": "@shebanglabs/hetzner-server-controller",
+    "version": "1.0.0",
+    "description": "A Kubernetes operator that manages Hetzner Cloud declaratively: servers, volumes, networks, firewalls, load balancers, IPs, certificates, images, SSH keys and placement groups.",
+    "license": "MIT",
+    "type": "module",
+    "engines": {
+        "node": ">=22"
+    },
+    "main": "dist/main.js",
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "start": "node dist/main.js",
+        "dev": "tsc -p tsconfig.json --watch",
+        "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+        "lint": "biome check .",
+        "lint:fix": "biome check --write .",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "verify": "npm run lint && npm run typecheck && npm run test",
+        "chart:lint": "helm lint charts/hetzner-server-controller -f charts/hetzner-server-controller/ci/default-values.yaml",
+        "chart:template": "helm template hetzner-server-controller charts/hetzner-server-controller -f charts/hetzner-server-controller/ci/default-values.yaml --include-crds",
+        "chart:docs": "docker run --rm -v \"$(pwd)/charts/hetzner-server-controller:/helm-docs\" -u \"$(id -u)\" jnorwood/helm-docs:v1.14.2"
+    },
+    "keywords": [
+        "kubernetes",
+        "operator",
+        "controller",
+        "hetzner",
+        "hcloud",
+        "infrastructure-as-code"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/shebang-labs/hetzner-server-controller.git"
+    },
+    "homepage": "https://github.com/shebang-labs/hetzner-server-controller#readme",
+    "bugs": {
+        "url": "https://github.com/shebang-labs/hetzner-server-controller/issues"
+    },
+    "dependencies": {
+        "@kubernetes/client-node": "^2.0.0",
+        "axios": "^1.20.0"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.0.0",
+        "@types/node": "^26.4.1",
+        "@vitest/coverage-v8": "^5.0.0",
+        "ajv": "^8.17.1",
+        "ajv-formats": "^3.0.1",
+        "js-yaml": "^5.4.1",
+        "typescript": "^7.0.2",
+        "vitest": "^5.0.0"
+    }
+}

@@ -1,0 +1,24 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# Secrets: never commit real tokens or generated manifests that contain them.
+# (config/secret.example.yaml is intentionally NOT ignored - it holds no token.)
+.env
+.env.*
+*.secret.yaml
+/secret.yaml
+kubeconfig
+*.kubeconfig
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+.k3s/

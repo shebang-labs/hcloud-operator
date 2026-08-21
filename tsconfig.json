@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+        /* Modern Node.js: native ES modules. This is why relative imports are
+       written with a ".js" extension even though the files are ".ts". */
+        "target": "ES2022",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "lib": ["ES2022"],
+        "types": ["node"],
+
+        "rootDir": "src",
+        "outDir": "dist",
+
+        /* Type safety: keep it strict, it catches most controller bugs early. */
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "noImplicitReturns": true,
+        "exactOptionalPropertyTypes": false,
+        "verbatimModuleSyntax": true,
+
+        "sourceMap": true,
+        "declaration": false,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["src/**/*.ts"],
+    "exclude": ["node_modules", "dist", "test"]
+}
