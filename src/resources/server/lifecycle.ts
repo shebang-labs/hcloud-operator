@@ -1,0 +1,345 @@
+/**
+ * Turning the server's declarative fields into Hetzner actions.
+ *
+ * The idea behind every function here is the same: read the server's real
+ * state, compare it to the spec, and issue at most the one action that moves
+ * reality one step closer. Anything that cannot be finished in a single pass
+ * (a shutdown that has to be waited out, a resize that needs the server off
+ * first) records what it is waiting for in status and asks to be called again.
+ *
+ * That "one step per pass" shape is what keeps these operations safe to
+ * interrupt. The operator can be killed at any point and the next reconcile
+ * picks up from whatever the server actually looks like, not from a plan it
+ * was half-way through.
+ */
+
+import type { ReconcileContext } from '../../framework/types.js';
+import type { ServerApi } from '../../hcloud/resources/servers.js';
+import type { Server } from '../../hcloud/types.js';
+import type { ChangeLog } from '../common.js';
+import {
+    DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+    type HetznerServerSpec,
+    type HetznerServerStatus,
+    type PowerState,
+} from './spec.js';
+
+export type ServerContext = ReconcileContext<HetznerServerSpec, HetznerServerStatus>;
+
+/** What a lifecycle step wants to happen next. */
+export interface StepResult {
+    /** Come back after this delay; the step is not finished. */
+    requeueAfterMs?: number;
+    /** A change the user asked for that needs a guard flag first. */
+    blocked?: string;
+    /** Status bookkeeping to persist. */
+    statusPatch?: Record<string, unknown>;
+    /** True when this step issued an action, so later steps should stand down. */
+    acted?: boolean;
+}
+
+const NOTHING: StepResult = {};
+
+/** How long to wait while a power transition is in flight. */
+const REQUEUE_WHILE_POWERING_MS = 10_000;
+
+export function desiredPowerState(spec: HetznerServerSpec): PowerState {
+    return spec.powerState ?? 'Running';
+}
+
+/**
+ * Resize.
+ *
+ * Hetzner only changes a server's type while it is powered off, so this is a
+ * three-step dance: shut down, change the type, power back on. `pendingOperation`
+ * remembers that the operator — not the user — powered the server off, so it
+ * knows to start it again afterwards.
+ */
+export async function convergeServerType(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+): Promise<StepResult> {
+    const { spec } = context;
+    const actualType = remote.server_type?.name;
+    if (!actualType || actualType === spec.serverType) {
+        // Nothing to do. If we were mid-resize, the operation is complete.
+        return context.resource.status?.pendingOperation === 'Resizing'
+            ? { statusPatch: { pendingOperation: null } }
+            : NOTHING;
+    }
+
+    if (!spec.allowDowntime) {
+        return {
+            blocked:
+                `spec.serverType is "${spec.serverType}" but the server runs "${actualType}". ` +
+                'Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.',
+        };
+    }
+
+    switch (remote.status) {
+        case 'off':
+            context.logger.info('Changing the server type', {
+                from: actualType,
+                to: spec.serverType,
+                upgradeDisk: spec.upgradeDisk ?? false,
+            });
+            await api.changeType(remote.id, spec.serverType, spec.upgradeDisk ?? false);
+            log.record(`resized from ${actualType} to ${spec.serverType}`);
+            // Power the server back on only if we are the ones who stopped it
+            // and the spec still asks for it to be running.
+            if (
+                context.resource.status?.pendingOperation === 'Resizing' &&
+                desiredPowerState(spec) === 'Running'
+            ) {
+                await api.powerOn(remote.id);
+                log.record('powered back on after the resize');
+            }
+            return {
+                acted: true,
+                statusPatch: { pendingOperation: null },
+                requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
+            };
+
+        case 'running':
+            context.logger.info('Powering the server off so it can be resized');
+            await api.shutdown(remote.id);
+            log.record('requested a shutdown in order to resize');
+            return {
+                acted: true,
+                statusPatch: {
+                    pendingOperation: 'Resizing',
+                    shutdownRequestedAt: new Date().toISOString(),
+                },
+                requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
+            };
+
+        default:
+            // stopping / starting / migrating: wait for Hetzner to settle.
+            return { requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
+    }
+}
+
+/**
+ * Rebuild. Erases the disk, so it needs `allowDataLoss` and nothing else: the
+ * action works whatever power state the server is in.
+ */
+export async function convergeImage(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+): Promise<StepResult> {
+    const { spec } = context;
+    if (imageMatches(spec.image, remote)) {
+        return NOTHING;
+    }
+
+    const actual = describeImage(remote);
+    if (!spec.allowDataLoss) {
+        return {
+            blocked:
+                `spec.image is "${spec.image}" but the server was built from "${actual}". ` +
+                'Rebuilding erases the disk, so set spec.allowDataLoss: true to apply it.',
+        };
+    }
+
+    context.logger.warn('Rebuilding the server — its disk will be erased', {
+        from: actual,
+        to: spec.image,
+    });
+    await api.rebuild(remote.id, spec.image);
+    log.record(`rebuilt from image ${spec.image}`);
+    return { acted: true, requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
+}
+
+/**
+ * Power state.
+ *
+ * "Off" first asks the guest to stop cleanly, and only cuts the power once the
+ * grace period has passed — the same escalation an administrator would do by
+ * hand, and the reason `shutdownRequestedAt` is tracked in status.
+ */
+export async function convergePowerState(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+): Promise<StepResult> {
+    const { spec } = context;
+    const desired = desiredPowerState(spec);
+    const status = remote.status;
+
+    if (desired === 'Running') {
+        if (status === 'running') {
+            return NOTHING;
+        }
+        if (status === 'off') {
+            context.logger.info('Powering the server on');
+            await api.powerOn(remote.id);
+            log.record('powered on');
+            return {
+                acted: true,
+                statusPatch: { shutdownRequestedAt: null },
+                requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
+            };
+        }
+        // starting / initializing: already on its way.
+        return { requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
+    }
+
+    if (status === 'off') {
+        return context.resource.status?.shutdownRequestedAt
+            ? { statusPatch: { shutdownRequestedAt: null } }
+            : NOTHING;
+    }
+
+    if (status !== 'running') {
+        // stopping: give it time to finish on its own.
+        return { requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
+    }
+
+    const requestedAt = context.resource.status?.shutdownRequestedAt;
+    if (!requestedAt) {
+        context.logger.info('Asking the guest to shut down');
+        await api.shutdown(remote.id);
+        log.record('requested a graceful shutdown');
+        return {
+            acted: true,
+            statusPatch: { shutdownRequestedAt: new Date().toISOString() },
+            requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
+        };
+    }
+
+    const graceMs =
+        (spec.gracefulShutdownTimeoutSeconds ?? DEFAULT_GRACEFUL_SHUTDOWN_SECONDS) * 1000;
+    const waitedMs = Date.now() - new Date(requestedAt).getTime();
+    if (waitedMs < graceMs) {
+        return { requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
+    }
+
+    context.logger.warn('The guest did not shut down in time; cutting the power', {
+        waitedMs,
+        graceMs,
+    });
+    await api.powerOff(remote.id);
+    log.record('forced the server off after the graceful shutdown timed out');
+    return {
+        acted: true,
+        statusPatch: { shutdownRequestedAt: null },
+        requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
+    };
+}
+
+/** Daily backups. A plain on/off toggle. */
+export async function convergeBackups(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+): Promise<StepResult> {
+    const desired = context.spec.backups;
+    if (desired === undefined) {
+        return NOTHING;
+    }
+    const actual = Boolean(remote.backup_window);
+    if (desired === actual) {
+        return NOTHING;
+    }
+
+    if (desired) {
+        await api.enableBackup(remote.id);
+        log.record('enabled daily backups');
+    } else {
+        await api.disableBackup(remote.id);
+        log.record('disabled daily backups');
+    }
+    return { acted: true };
+}
+
+/**
+ * Rescue mode. Enabling it only takes effect on the next boot, which is why the
+ * operator does not reboot the server for you: that decision belongs to whoever
+ * is about to debug it.
+ */
+export async function convergeRescue(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+): Promise<StepResult> {
+    const desired = context.spec.rescue;
+    if (desired === undefined) {
+        return NOTHING;
+    }
+    const actual = remote.rescue_enabled ?? false;
+    if (desired.enabled === actual) {
+        return NOTHING;
+    }
+
+    if (desired.enabled) {
+        const sshKeyIds = await context.refs.resolveAll(
+            'HetznerSSHKey',
+            desired.sshKeyRefs,
+            context.namespace,
+        );
+        await api.enableRescue(remote.id, {
+            ...(desired.type ? { type: desired.type } : {}),
+            sshKeyIds,
+        });
+        log.record('enabled the rescue system (effective on the next boot)');
+    } else {
+        await api.disableRescue(remote.id);
+        log.record('disabled the rescue system');
+    }
+    return { acted: true };
+}
+
+/** Attached ISO. `spec.iso: null` (or omitted) means "none". */
+export async function convergeIso(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+): Promise<StepResult> {
+    const desired = context.spec.iso ?? null;
+    const actual = remote.iso?.name ?? null;
+    if (desired === actual) {
+        return NOTHING;
+    }
+
+    if (desired === null) {
+        await api.detachIso(remote.id);
+        log.record(`detached ISO ${actual}`);
+    } else {
+        await api.attachIso(remote.id, desired);
+        log.record(`attached ISO ${desired}`);
+    }
+    return { acted: true };
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Hetzner reports system images by name ("ubuntu-24.04") and snapshots by id
+ * with a null name, so `spec.image` is compared against whichever the server
+ * actually has.
+ */
+export function imageMatches(desired: string, remote: Server): boolean {
+    const image = remote.image;
+    if (!image) {
+        // The server was rebuilt from a since-deleted image; nothing to compare.
+        return true;
+    }
+    if (/^\d+$/.test(desired)) {
+        return image.id === Number(desired);
+    }
+    return image.name === undefined || image.name === null || image.name === desired;
+}
+
+export function describeImage(remote: Server): string {
+    return (
+        remote.image?.name ?? (remote.image?.id !== undefined ? `#${remote.image.id}` : 'unknown')
+    );
+}
