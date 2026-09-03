@@ -1,0 +1,195 @@
+/**
+ * Admission validation.
+ *
+ * The point of the webhook is to turn a typo into a rejection at apply time,
+ * with the valid alternatives in the message — instead of a condition on an
+ * object nobody is watching. The one behaviour that matters more than that is
+ * the failure mode: if Hetzner is unreachable, the webhook must get out of the
+ * way rather than block every apply in the cluster.
+ */
+
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { AdmissionRequest } from '../../src/admission/review.js';
+import { createValidator, type Validator } from '../../src/admission/validator.js';
+import { createActionTracker } from '../../src/hcloud/actions.js';
+import { HetznerApiError } from '../../src/hcloud/errors.js';
+import { assembleHetznerCloud, type HetznerCloud } from '../../src/hcloud/index.js';
+import { RateLimiter } from '../../src/hcloud/rate-limiter.js';
+import { nullLogger } from '../../src/observability/logger.js';
+import { buildKinds } from '../../src/resources/index.js';
+import { FakeHetznerApi } from '../support/fake-hcloud.js';
+
+let api: FakeHetznerApi;
+let hcloud: HetznerCloud;
+let validator: Validator;
+
+beforeEach(() => {
+    api = new FakeHetznerApi();
+    hcloud = assembleHetznerCloud({
+        http: api,
+        rateLimiter: new RateLimiter({ requestsPerHour: 3_600 }),
+        actions: createActionTracker({ http: api, sleep: async () => undefined }),
+    });
+    const kinds = buildKinds({ hcloud, secrets: { read: async () => null } });
+    validator = createValidator({
+        adapters: new Map(kinds.map((kind) => [kind.descriptor.kind, kind.adapter])),
+        catalog: hcloud.catalog,
+        logger: nullLogger,
+    });
+});
+
+function request(kind: string, spec: unknown, overrides: Partial<AdmissionRequest> = {}) {
+    return {
+        uid: 'review-1',
+        kind: { group: 'hcloud.shebanglabs.io', version: 'v1alpha1', kind },
+        namespace: 'default',
+        name: 'example',
+        operation: 'CREATE' as const,
+        object: { metadata: { name: 'example', namespace: 'default' }, spec },
+        ...overrides,
+    };
+}
+
+const validServer = { serverType: 'cpx21', image: 'ubuntu-24.04', location: 'nbg1' };
+
+describe('createValidator', () => {
+    it('allows a valid spec', async () => {
+        const response = await validator.review(request('HetznerServer', validServer));
+
+        expect(response).toEqual({ uid: 'review-1', allowed: true });
+    });
+
+    it('echoes the review uid back, which the API server matches on', async () => {
+        const response = await validator.review(
+            request('HetznerServer', validServer, { uid: 'abc-999' }),
+        );
+
+        expect(response.uid).toBe('abc-999');
+    });
+
+    it('runs the adapter’s own validate, so the two can never disagree', async () => {
+        const response = await validator.review(
+            request('HetznerServer', { image: 'ubuntu-24.04', location: 'nbg1' }),
+        );
+
+        expect(response.allowed).toBe(false);
+        expect(response.status?.message).toMatch(/spec.serverType is required/);
+        expect(response.status?.code).toBe(422);
+    });
+
+    it('rejects a server type Hetzner does not have, and lists the ones it does', async () => {
+        const response = await validator.review(
+            request('HetznerServer', { ...validServer, serverType: 'cpx99' }),
+        );
+
+        expect(response.allowed).toBe(false);
+        expect(response.status?.message).toMatch(/spec.serverType "cpx99" does not exist/);
+        // Listing the alternatives is the point: otherwise the user has to go
+        // and look them up in the Hetzner console.
+        expect(response.status?.message).toMatch(/cpx21/);
+    });
+
+    it.each([
+        [{ ...validServer, location: 'atlantis' }, /spec.location "atlantis"/],
+        [
+            { serverType: 'cpx21', image: 'ubuntu-24.04', datacenter: 'atlantis-dc1' },
+            /spec.datacenter "atlantis-dc1"/,
+        ],
+        [{ ...validServer, image: 'temple-os' }, /spec.image "temple-os"/],
+        [{ ...validServer, iso: 'not-an-iso' }, /spec.iso "not-an-iso"/],
+    ])('rejects %o', async (spec, expected) => {
+        const response = await validator.review(request('HetznerServer', spec));
+
+        expect(response.allowed).toBe(false);
+        expect(response.status?.message).toMatch(expected);
+    });
+
+    it('does not check a numeric image against the system catalog', async () => {
+        // A number is a snapshot id, which the system image list does not carry.
+        const response = await validator.review(
+            request('HetznerServer', { ...validServer, image: '4711' }),
+        );
+
+        expect(response.allowed).toBe(true);
+    });
+
+    it('reports every catalog problem at once, not one per apply', async () => {
+        const response = await validator.review(
+            request('HetznerServer', {
+                serverType: 'cpx99',
+                image: 'temple-os',
+                location: 'atlantis',
+            }),
+        );
+
+        expect(response.status?.message).toMatch(/serverType/);
+        expect(response.status?.message).toMatch(/image/);
+        expect(response.status?.message).toMatch(/location/);
+    });
+
+    it('validates the other kinds too', async () => {
+        const response = await validator.review(
+            request('HetznerVolume', { size: 5, location: 'nbg1' }),
+        );
+
+        expect(response.allowed).toBe(false);
+        expect(response.status?.message).toMatch(/at least 10/);
+    });
+
+    it('allows a kind it does not serve', async () => {
+        const response = await validator.review(request('SomeoneElsesKind', { anything: true }));
+
+        expect(response.allowed).toBe(true);
+    });
+
+    it('allows a request with no object, such as a delete', async () => {
+        const response = await validator.review({
+            uid: 'review-1',
+            kind: { kind: 'HetznerServer' },
+            operation: 'DELETE',
+            object: null,
+        });
+
+        expect(response.allowed).toBe(true);
+    });
+
+    it('gets out of the way when Hetzner is unreachable', async () => {
+        api.failNext({
+            match: 'GET /server_types',
+            error: new HetznerApiError({
+                status: 0,
+                code: 'network_error',
+                message: 'connect ETIMEDOUT',
+                retryable: true,
+            }),
+            times: 10,
+        });
+
+        const response = await validator.review(request('HetznerServer', validServer));
+
+        // Blocking every apply in the cluster because a third party is down
+        // would be far worse than letting a typo through to a condition.
+        expect(response.allowed).toBe(true);
+        expect(response.warnings?.[0]).toMatch(/could not reach the Hetzner Cloud API/);
+    });
+
+    it('still rejects a structurally invalid spec while Hetzner is down', async () => {
+        api.failNext({
+            match: 'GET /server_types',
+            error: new HetznerApiError({
+                status: 0,
+                code: 'network_error',
+                message: 'down',
+                retryable: true,
+            }),
+            times: 10,
+        });
+
+        const response = await validator.review(
+            request('HetznerServer', { image: 'ubuntu-24.04' }),
+        );
+
+        // The adapter's validate() needs no network, so it still applies.
+        expect(response.allowed).toBe(false);
+    });
+});
