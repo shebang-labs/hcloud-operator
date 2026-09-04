@@ -1,0 +1,40 @@
+{{- if .Values.webhook.enabled }}
+{{- if .Values.webhook.certManager.createIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "hetzner-server-controller.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hetzner-server-controller.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+{{- end }}
+# The webhook's serving certificate. cert-manager issues and rotates it, and
+# copies the CA into the ValidatingWebhookConfiguration below.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "hetzner-server-controller.webhookCertificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hetzner-server-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "hetzner-server-controller.webhookSecretName" . }}
+  duration: {{ .Values.webhook.certManager.duration }}
+  renewBefore: {{ .Values.webhook.certManager.renewBefore }}
+  dnsNames:
+    - {{ include "hetzner-server-controller.webhookServiceName" . }}
+    - {{ include "hetzner-server-controller.webhookServiceName" . }}.{{ .Release.Namespace }}
+    - {{ include "hetzner-server-controller.webhookServiceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "hetzner-server-controller.webhookServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    {{- if .Values.webhook.certManager.createIssuer }}
+    name: {{ include "hetzner-server-controller.fullname" . }}-selfsigned
+    kind: Issuer
+    {{- else }}
+    {{- required "webhook.certManager.issuerRef.name is required when createIssuer is false" .Values.webhook.certManager.issuerRef.name | printf "name: %s" | nindent 4 }}
+    kind: {{ default "Issuer" .Values.webhook.certManager.issuerRef.kind }}
+    {{- end }}
+{{- end }}

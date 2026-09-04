@@ -1,0 +1,192 @@
+# Kind: HetznerCertificate  (hcloud.shebanglabs.io/v1alpha1)
+#
+# This file is the source of truth for the API contract. The TypeScript types
+# in src/resources/ mirror it, and test/manifests/ checks that they agree.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hetznercertificates.hcloud.shebanglabs.io
+  labels:
+    app.kubernetes.io/name: hetzner-server-controller
+spec:
+  group: hcloud.shebanglabs.io
+  scope: Namespaced
+  names:
+    kind: HetznerCertificate
+    listKind: HetznerCertificateList
+    plural: hetznercertificates
+    singular: hetznercertificate
+    shortNames:
+      - hcert
+    categories:
+      - hcloud
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .status.type
+        - name: Expires
+          type: date
+          jsonPath: .status.notValidAfter
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: ID
+          type: integer
+          jsonPath: .status.id
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+        - name: Message
+          type: string
+          jsonPath: .status.message
+          priority: 1
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A TLS certificate in the Hetzner Cloud project, for use by load balancers.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required: []
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - uploaded
+                    - managed
+                  default: uploaded
+                  description: >-
+                    uploaded takes the material from a Secret; managed asks Hetzner to obtain a
+                    Let's Encrypt certificate. Immutable.
+                secretRef:
+                  type: object
+                  description: >-
+                    Required for type: uploaded. The private key is read once, sent to Hetzner, and
+                    never logged or stored in status.
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      description: Name of a Secret in this namespace, usually of type kubernetes.io/tls.
+                    certificateKey:
+                      type: string
+                      default: tls.crt
+                    privateKeyKey:
+                      type: string
+                      default: tls.key
+                domainNames:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Required for type: managed. Immutable.'
+                adoptExisting:
+                  type: string
+                  description: >-
+                    Take over a resource that already exists in the Hetzner project instead of
+                    creating one. Accepts a Hetzner name or a numeric id.
+                deletionPolicy:
+                  type: string
+                  enum:
+                    - Delete
+                    - Orphan
+                  default: Delete
+                  description: >-
+                    Delete removes the Hetzner resource with the Kubernetes object. Orphan leaves it
+                    running and only drops the finalizer.
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: >-
+                    Labels to set on the Hetzner resource, on top of the ownership labels the
+                    operator manages.
+            status:
+              type: object
+              properties:
+                type:
+                  type: string
+                domainNames:
+                  type: array
+                  items:
+                    type: string
+                fingerprint:
+                  type: string
+                notValidBefore:
+                  type: string
+                  format: date-time
+                notValidAfter:
+                  type: string
+                  format: date-time
+                issuanceStatus:
+                  type: string
+                  description: 'For managed certificates: pending, completed or failed.'
+                renewalStatus:
+                  type: string
+                usedByCount:
+                  type: integer
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Creating
+                    - Ready
+                    - Updating
+                    - Deleting
+                    - Error
+                id:
+                  type: integer
+                  description: Hetzner numeric id. The link between Kubernetes and Hetzner.
+                hetznerName:
+                  type: string
+                  description: Name the resource has inside the Hetzner project.
+                message:
+                  type: string
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - message
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - 'True'
+                          - 'False'
+                          - Unknown
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer

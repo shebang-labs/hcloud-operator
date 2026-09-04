@@ -1,0 +1,210 @@
+# Kind: HetznerVolume  (hcloud.shebanglabs.io/v1alpha1)
+#
+# This file is the source of truth for the API contract. The TypeScript types
+# in src/resources/ mirror it, and test/manifests/ checks that they agree.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hetznervolumes.hcloud.shebanglabs.io
+  labels:
+    app.kubernetes.io/name: hetzner-server-controller
+spec:
+  group: hcloud.shebanglabs.io
+  scope: Namespaced
+  names:
+    kind: HetznerVolume
+    listKind: HetznerVolumeList
+    plural: hetznervolumes
+    singular: hetznervolume
+    shortNames:
+      - hvol
+    categories:
+      - hcloud
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Size
+          type: integer
+          jsonPath: .status.size
+        - name: Attached
+          type: boolean
+          jsonPath: .status.attached
+        - name: Server
+          type: integer
+          jsonPath: .status.attachedToServerId
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: ID
+          type: integer
+          jsonPath: .status.id
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+        - name: Message
+          type: string
+          jsonPath: .status.message
+          priority: 1
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A Hetzner block storage volume.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - size
+              properties:
+                size:
+                  type: integer
+                  minimum: 10
+                  description: Size in GB. May grow, never shrink.
+                location:
+                  type: string
+                  description: Where to create the volume, e.g. "nbg1". Immutable.
+                format:
+                  type: string
+                  enum:
+                    - ext4
+                    - xfs
+                  description: Filesystem Hetzner creates on the volume. Immutable.
+                serverRef:
+                  type: object
+                  description: >-
+                    The server to attach the volume to. Omit to leave it detached. Set exactly one
+                    of name, hetznerName or id.
+                  properties:
+                    name:
+                      type: string
+                      description: Name of a custom resource of the target kind.
+                    namespace:
+                      type: string
+                      description: Namespace of that custom resource. Defaults to this object's namespace.
+                    hetznerName:
+                      type: string
+                      description: Name of an unmanaged resource that already exists in the Hetzner project.
+                    id:
+                      type: integer
+                      description: Raw Hetzner id.
+                  oneOf:
+                    - required:
+                        - name
+                    - required:
+                        - hetznerName
+                    - required:
+                        - id
+                automount:
+                  type: boolean
+                  description: Ask Hetzner to mount the volume on attach. Only honoured on the first attach.
+                allowDetach:
+                  type: boolean
+                  description: >-
+                    Required for any change that detaches the volume, which interrupts the workload
+                    using it.
+                protection:
+                  type: object
+                  description: Hetzner protection flags.
+                  properties:
+                    delete:
+                      type: boolean
+                      description: Refuse deletion until this is turned off.
+                adoptExisting:
+                  type: string
+                  description: >-
+                    Take over a resource that already exists in the Hetzner project instead of
+                    creating one. Accepts a Hetzner name or a numeric id.
+                deletionPolicy:
+                  type: string
+                  enum:
+                    - Delete
+                    - Orphan
+                  default: Delete
+                  description: >-
+                    Delete removes the Hetzner resource with the Kubernetes object. Orphan leaves it
+                    running and only drops the finalizer.
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: >-
+                    Labels to set on the Hetzner resource, on top of the ownership labels the
+                    operator manages.
+            status:
+              type: object
+              properties:
+                size:
+                  type: integer
+                location:
+                  type: string
+                format:
+                  type: string
+                linuxDevice:
+                  type: string
+                  description: Device path inside the guest.
+                attachedToServerId:
+                  type: integer
+                attached:
+                  type: boolean
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Creating
+                    - Ready
+                    - Updating
+                    - Deleting
+                    - Error
+                id:
+                  type: integer
+                  description: Hetzner numeric id. The link between Kubernetes and Hetzner.
+                hetznerName:
+                  type: string
+                  description: Name the resource has inside the Hetzner project.
+                message:
+                  type: string
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - message
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - 'True'
+                          - 'False'
+                          - Unknown
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer

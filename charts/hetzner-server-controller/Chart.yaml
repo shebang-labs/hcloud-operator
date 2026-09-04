@@ -1,0 +1,120 @@
+apiVersion: v2
+name: hetzner-server-controller
+description: >-
+  A Kubernetes operator that manages Hetzner Cloud declaratively: servers,
+  volumes, networks, firewalls, load balancers, floating and primary IPs,
+  certificates, images, SSH keys and placement groups as custom resources.
+type: application
+# The chart and the application are versioned together: chart 1.2.3 always
+# ships image 1.2.3. One number for users to reason about.
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/shebang-labs/hetzner-server-controller
+icon: https://raw.githubusercontent.com/shebang-labs/hetzner-server-controller/main/docs/assets/icon.svg
+sources:
+  - https://github.com/shebang-labs/hetzner-server-controller
+keywords:
+  - hetzner
+  - hcloud
+  - operator
+  - controller
+  - infrastructure
+  - crd
+maintainers:
+  - name: Shebang Labs
+    url: https://github.com/shebang-labs
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Full Lifecycle
+  artifacthub.io/category: integration-delivery
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/shebang-labs/hetzner-server-controller#readme
+    - name: Container image
+      url: https://hub.docker.com/r/shebanglabs/hetzner-server-controller
+    - name: Examples
+      url: https://github.com/shebang-labs/hetzner-server-controller/tree/main/examples
+  artifacthub.io/images: |
+    - name: hetzner-server-controller
+      image: docker.io/shebanglabs/hetzner-server-controller:1.0.0
+  artifacthub.io/crds: |
+    - kind: HetznerServer
+      version: v1alpha1
+      name: hetznerservers.hcloud.shebanglabs.io
+      displayName: Hetzner Server
+      description: A Hetzner Cloud server, including power state, resize, rebuild, backups, rescue, ISO, reverse DNS, networks, placement group and protection.
+    - kind: HetznerVolume
+      version: v1alpha1
+      name: hetznervolumes.hcloud.shebanglabs.io
+      displayName: Hetzner Volume
+      description: A block storage volume, its size, filesystem and attachment.
+    - kind: HetznerNetwork
+      version: v1alpha1
+      name: hetznernetworks.hcloud.shebanglabs.io
+      displayName: Hetzner Network
+      description: A private network with subnets and routes.
+    - kind: HetznerFirewall
+      version: v1alpha1
+      name: hetznerfirewalls.hcloud.shebanglabs.io
+      displayName: Hetzner Firewall
+      description: Firewall rules applied to servers or label selectors.
+    - kind: HetznerLoadBalancer
+      version: v1alpha1
+      name: hetznerloadbalancers.hcloud.shebanglabs.io
+      displayName: Hetzner Load Balancer
+      description: A load balancer with services, health checks, TLS and targets.
+    - kind: HetznerFloatingIP
+      version: v1alpha1
+      name: hetznerfloatingips.hcloud.shebanglabs.io
+      displayName: Hetzner Floating IP
+      description: A floating IP, its assignment and reverse DNS.
+    - kind: HetznerPrimaryIP
+      version: v1alpha1
+      name: hetznerprimaryips.hcloud.shebanglabs.io
+      displayName: Hetzner Primary IP
+      description: A primary IP, its assignment, auto-delete and reverse DNS.
+    - kind: HetznerSSHKey
+      version: v1alpha1
+      name: hetznersshkeys.hcloud.shebanglabs.io
+      displayName: Hetzner SSH Key
+      description: A public SSH key uploaded to the project.
+    - kind: HetznerPlacementGroup
+      version: v1alpha1
+      name: hetznerplacementgroups.hcloud.shebanglabs.io
+      displayName: Hetzner Placement Group
+      description: A spread placement group.
+    - kind: HetznerCertificate
+      version: v1alpha1
+      name: hetznercertificates.hcloud.shebanglabs.io
+      displayName: Hetzner Certificate
+      description: An uploaded or Hetzner-managed TLS certificate.
+    - kind: HetznerImage
+      version: v1alpha1
+      name: hetznerimages.hcloud.shebanglabs.io
+      displayName: Hetzner Image
+      description: A snapshot of a server's disk.
+  artifacthub.io/crdsExamples: |
+    - apiVersion: hcloud.shebanglabs.io/v1alpha1
+      kind: HetznerServer
+      metadata:
+        name: web-01
+      spec:
+        serverType: cpx21
+        image: ubuntu-24.04
+        location: nbg1
+        powerState: Running
+        backups: true
+    - apiVersion: hcloud.shebanglabs.io/v1alpha1
+      kind: HetznerVolume
+      metadata:
+        name: data
+      spec:
+        size: 50
+        format: ext4
+        serverRef:
+          name: web-01
+  artifacthub.io/changes: |
+    - kind: added
+      description: First public release with eleven managed Hetzner Cloud resources.
