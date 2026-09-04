@@ -1,0 +1,4 @@
+# Used by chart-testing (ct) and CI: the chart refuses to render without a
+# token, and CI has no real one.
+hetzner:
+  token: ci-placeholder-token

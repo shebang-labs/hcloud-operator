@@ -1,0 +1,12 @@
+hetzner:
+  token: ci-placeholder-token
+replicaCount: 1
+leaderElection:
+  enabled: false
+controller:
+  watchNamespace: default
+  enabledKinds: [HetznerServer, HetznerVolume]
+rbac:
+  secretsAccess: false
+podDisruptionBudget:
+  enabled: false

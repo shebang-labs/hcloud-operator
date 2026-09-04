@@ -1,0 +1,8 @@
+# chart-testing configuration. The chart version is tied to the release tag,
+# so it is not bumped on every pull request.
+chart-dirs:
+  - charts
+target-branch: main
+check-version-increment: false
+validate-maintainers: false
+helm-extra-args: --timeout 3m
