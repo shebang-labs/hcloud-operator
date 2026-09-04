@@ -1,0 +1,15 @@
+# One private network for the whole production stack. Servers and the load
+# balancer join it, so backend traffic never leaves Hetzner's network.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerNetwork
+metadata:
+  name: prod
+  namespace: demo
+spec:
+  ipRange: 10.0.0.0/16
+  subnets:
+    - type: cloud
+      ipRange: 10.0.1.0/24
+      networkZone: eu-central
+  protection:
+    delete: true

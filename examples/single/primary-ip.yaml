@@ -1,0 +1,19 @@
+# A primary IP is the address a server is born with. Declaring it separately
+# lets the address outlive the server: set autoDelete: false, delete the
+# HetznerServer, and the next one can claim the same IP — which is what you want
+# when the address is in a third party's allowlist.
+#
+# Hetzner only reassigns a primary IP while both servers are powered off. The
+# operator will not power a server down on its own, so if you move serverRef it
+# reports a blocked change until you set spec.powerState: Stopped on the servers.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerPrimaryIP
+metadata:
+  name: web-01-ipv4
+  namespace: default
+spec:
+  type: ipv4
+  datacenter: nbg1-dc3
+  autoDelete: false
+  protection:
+    delete: true

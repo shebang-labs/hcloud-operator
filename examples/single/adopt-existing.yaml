@@ -1,0 +1,22 @@
+# Taking over a Hetzner resource that already exists.
+#
+# `adoptExisting` names a server that predates the operator. On the first
+# reconcile the operator finds it, stamps its ownership labels on it, and from
+# then on manages it like any other — without ever recreating it.
+#
+# Pair it with `deletionPolicy: Orphan` while you are still gaining confidence:
+# deleting the Kubernetes object will then leave the server running.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerServer
+metadata:
+  name: legacy-web
+  namespace: default
+spec:
+  adoptExisting: web-old-01
+  deletionPolicy: Orphan
+
+  # These must describe the server as it actually is, or the operator will
+  # report drift (and, with the guards set, try to converge it).
+  serverType: cx22
+  image: ubuntu-22.04
+  location: fsn1

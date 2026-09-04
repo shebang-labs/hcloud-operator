@@ -1,0 +1,70 @@
+# Two web servers. They reference the SSH key, network and placement group by
+# name — the operator waits for those to be Ready before creating anything, so
+# the order these files are applied in does not matter.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerServer
+metadata:
+  name: web-01
+  namespace: demo
+spec:
+  serverType: cpx21
+  image: ubuntu-24.04
+  location: nbg1
+  sshKeyRefs:
+    - name: ops
+  placementGroupRef:
+    name: web
+  networks:
+    - networkRef:
+        name: prod
+      ip: 10.0.1.11
+  powerState: Running
+  backups: true
+  labels:
+    role: web
+    tier: production
+  userData: |
+    #cloud-config
+    package_update: true
+    packages:
+      - nginx
+    write_files:
+      - path: /var/www/html/index.html
+        content: |
+          <h1>Hello from Hetzner Cloud</h1>
+    runcmd:
+      - [systemctl, enable, --now, nginx]
+  protection:
+    delete: true
+---
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerServer
+metadata:
+  name: web-02
+  namespace: demo
+spec:
+  serverType: cpx21
+  image: ubuntu-24.04
+  location: nbg1
+  sshKeyRefs:
+    - name: ops
+  placementGroupRef:
+    name: web
+  networks:
+    - networkRef:
+        name: prod
+      ip: 10.0.1.12
+  powerState: Running
+  backups: true
+  labels:
+    role: web
+    tier: production
+  userData: |
+    #cloud-config
+    package_update: true
+    packages:
+      - nginx
+    runcmd:
+      - [systemctl, enable, --now, nginx]
+  protection:
+    delete: true

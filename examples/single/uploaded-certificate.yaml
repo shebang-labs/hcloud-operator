@@ -1,0 +1,29 @@
+# An uploaded certificate. The private key stays in a Secret: the operator reads
+# it once, hands it to Hetzner, and never logs it or writes it into status.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: example-tls
+  namespace: default
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_ME
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    REPLACE_ME
+    -----END PRIVATE KEY-----
+---
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerCertificate
+metadata:
+  name: example-tls
+  namespace: default
+spec:
+  type: uploaded
+  secretRef:
+    name: example-tls
+    certificateKey: tls.crt
+    privateKeyKey: tls.key

@@ -1,0 +1,10 @@
+# The smallest useful HetznerServer: three required fields.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerServer
+metadata:
+  name: scratch
+  namespace: default
+spec:
+  serverType: cx22
+  image: ubuntu-24.04
+  location: nbg1

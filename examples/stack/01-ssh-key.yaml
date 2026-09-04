@@ -1,0 +1,8 @@
+# An SSH key the operator uploads to the project. Servers reference it by name.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerSSHKey
+metadata:
+  name: ops
+  namespace: demo
+spec:
+  publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIReplaceWithYourOwnPublicKeyMaterial0000 admin@example.com

@@ -1,0 +1,50 @@
+# Every imperative Hetzner server operation, expressed as desired state.
+#
+# Change a field and apply: the operator drives the corresponding Hetzner
+# action. Destructive changes need their guard flag first, which is what stops a
+# stray `serverType` edit from rebooting production.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerServer
+metadata:
+  name: workbench
+  namespace: default
+spec:
+  serverType: cpx21
+  image: ubuntu-24.04
+  location: nbg1
+
+  # Power. "Off" asks the guest to stop cleanly first and only cuts the power
+  # once the grace period has passed.
+  powerState: Running
+  gracefulShutdownTimeoutSeconds: 120
+
+  # Resize: changing serverType above powers the server off, changes the type,
+  # and powers it back on — but only with this flag set.
+  allowDowntime: false
+  # Grow the disk during the resize. Hetzner cannot downgrade afterwards.
+  upgradeDisk: false
+
+  # Rebuild: changing image above erases the disk. Nothing on it survives.
+  allowDataLoss: false
+
+  # Hetzner's daily backups. Adds 20% to the server price.
+  backups: false
+
+  # Rescue mode. Takes effect on the next boot; the operator does not reboot the
+  # server for you, because that decision belongs to whoever is debugging it.
+  rescue:
+    enabled: false
+    type: linux64
+
+  # Attach an ISO by name, or leave it null to detach.
+  iso: null
+
+  # Reverse DNS for the server's public addresses.
+  # dnsPtr:
+  #   - ip: 203.0.113.10
+  #     dnsPtr: workbench.example.com
+
+  # Refuse deletion and rebuild until these are turned off.
+  protection:
+    delete: false
+    rebuild: false

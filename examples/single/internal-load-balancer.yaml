@@ -1,0 +1,23 @@
+# A load balancer with no public address: it lives only on the private network,
+# which is what you want in front of an internal API.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerLoadBalancer
+metadata:
+  name: internal-api
+  namespace: default
+spec:
+  loadBalancerType: lb11
+  networkZone: eu-central
+  publicInterface: false
+  networkRef:
+    hetznerName: prod
+  services:
+    - protocol: tcp
+      listenPort: 8080
+      destinationPort: 8080
+      healthCheck:
+        protocol: tcp
+        port: 8080
+  targets:
+    - labelSelector: role=api
+      usePrivateIp: true

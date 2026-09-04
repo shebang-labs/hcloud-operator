@@ -1,0 +1,14 @@
+# A point-in-time snapshot of a server's disk, taken once when this object is
+# created. Changing sourceServerRef later reports drift rather than silently
+# replacing the image something else may be booting from.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerImage
+metadata:
+  name: db-pre-upgrade
+  namespace: default
+spec:
+  sourceServerRef:
+    name: db-01
+  description: Postgres 15, taken before the 16 upgrade
+  protection:
+    delete: true

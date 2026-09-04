@@ -1,0 +1,9 @@
+# Keeps the web servers on different physical hosts, so one host failure cannot
+# take the whole tier down.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerPlacementGroup
+metadata:
+  name: web
+  namespace: demo
+spec:
+  type: spread

@@ -1,0 +1,13 @@
+# A Let's Encrypt certificate Hetzner obtains and renews. Issuance is
+# asynchronous and needs the domains to resolve to this Hetzner project, so
+# watch `.status.issuanceStatus` after applying.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerCertificate
+metadata:
+  name: example-com
+  namespace: demo
+spec:
+  type: managed
+  domainNames:
+    - example.com
+    - www.example.com

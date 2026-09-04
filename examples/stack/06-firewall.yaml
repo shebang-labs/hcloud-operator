@@ -1,0 +1,53 @@
+# Firewalls declare which servers they protect — not the other way round.
+# The label selector covers every server the operator labels `role=web`,
+# including ones created after this firewall.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerFirewall
+metadata:
+  name: web
+  namespace: demo
+spec:
+  applyToLabelSelectors:
+    - role=web
+  rules:
+    - direction: in
+      protocol: tcp
+      port: "80"
+      sourceIps: ["0.0.0.0/0", "::/0"]
+      description: HTTP from anywhere
+    - direction: in
+      protocol: tcp
+      port: "443"
+      sourceIps: ["0.0.0.0/0", "::/0"]
+      description: HTTPS from anywhere
+    - direction: in
+      protocol: tcp
+      port: "22"
+      sourceIps: ["203.0.113.0/24"]
+      description: SSH from the office only
+    - direction: in
+      protocol: icmp
+      sourceIps: ["0.0.0.0/0", "::/0"]
+      description: ping
+---
+# The database accepts nothing from the public internet: only Postgres from
+# inside the private network, and SSH from the office.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerFirewall
+metadata:
+  name: database
+  namespace: demo
+spec:
+  applyToLabelSelectors:
+    - role=database
+  rules:
+    - direction: in
+      protocol: tcp
+      port: "5432"
+      sourceIps: ["10.0.0.0/16"]
+      description: Postgres from the private network only
+    - direction: in
+      protocol: tcp
+      port: "22"
+      sourceIps: ["203.0.113.0/24"]
+      description: SSH from the office only

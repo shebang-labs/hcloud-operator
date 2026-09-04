@@ -1,0 +1,19 @@
+# A failover address. Moving it is a one-line spec change:
+#   kubectl -n demo patch hfip egress \
+#     --type merge -p '{"spec":{"serverRef":{"name":"web-02"}}}'
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerFloatingIP
+metadata:
+  name: egress
+  namespace: demo
+spec:
+  type: ipv4
+  homeLocation: nbg1
+  description: Stable outbound address for third-party allowlists
+  serverRef:
+    name: web-01
+  # Reverse DNS needs the address, which Hetzner only assigns on create. Read it
+  # from .status.ip after the first apply, then add:
+  #   dnsPtr:
+  #     - ip: 203.0.113.42
+  #       dnsPtr: egress.example.com

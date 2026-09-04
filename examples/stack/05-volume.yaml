@@ -1,0 +1,42 @@
+# Persistent storage for the database server. Attachment is declared here, on
+# the volume — never on the server. See docs/RELATIONSHIPS.md for why each
+# relationship has exactly one owner.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerVolume
+metadata:
+  name: postgres-data
+  namespace: demo
+spec:
+  size: 100
+  format: ext4
+  serverRef:
+    name: db-01
+  automount: false
+  # Production data: refuse to delete it even if the object is removed, and do
+  # not let a spec change detach it from under a running database.
+  deletionPolicy: Orphan
+  protection:
+    delete: true
+---
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerServer
+metadata:
+  name: db-01
+  namespace: demo
+spec:
+  serverType: cpx31
+  image: ubuntu-24.04
+  location: nbg1
+  sshKeyRefs:
+    - name: ops
+  networks:
+    - networkRef:
+        name: prod
+      ip: 10.0.1.21
+  backups: true
+  labels:
+    role: database
+    tier: production
+  protection:
+    delete: true
+    rebuild: true

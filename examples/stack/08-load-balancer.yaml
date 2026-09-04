@@ -1,0 +1,35 @@
+# Terminates TLS, redirects HTTP, and balances over every server labelled
+# role=web using their private addresses.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerLoadBalancer
+metadata:
+  name: web
+  namespace: demo
+spec:
+  loadBalancerType: lb11
+  location: nbg1
+  algorithm: round_robin
+  networkRef:
+    name: prod
+  services:
+    - protocol: https
+      listenPort: 443
+      destinationPort: 80
+      proxyProtocol: false
+      http:
+        certificateRefs:
+          - name: example-com
+        redirectHttp: true
+        stickySessions: false
+      healthCheck:
+        protocol: http
+        port: 80
+        interval: 15
+        timeout: 10
+        retries: 3
+        http:
+          path: /healthz
+          statusCodes: ["2??"]
+  targets:
+    - labelSelector: role=web
+      usePrivateIp: true
