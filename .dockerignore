@@ -1,0 +1,18 @@
+# Keep the build context small and never ship local state or secrets.
+.git
+.github
+node_modules
+dist
+test
+coverage
+charts
+examples
+ct.yaml
+docs
+*.md
+.env
+.env.*
+*.log
+.DS_Store
+.vscode
+.idea
