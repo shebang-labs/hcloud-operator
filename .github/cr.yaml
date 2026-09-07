@@ -1,0 +1,4 @@
+# chart-releaser: one GitHub Release per version, named like the tag, so the
+# chart archive and the changelog live on the same release page.
+release-name-template: "v{{ .Version }}"
+generate-release-notes: false
