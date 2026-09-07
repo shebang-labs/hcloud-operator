@@ -153,6 +153,84 @@ describe('createValidator', () => {
         expect(response.allowed).toBe(true);
     });
 
+    describe('on UPDATE', () => {
+        // Hetzner retires server types and images from its catalog. An object
+        // created with one must stay editable, or the only way to fix it is
+        // to delete and recreate the server.
+        const retired = { ...validServer, serverType: 'cx11' };
+
+        function update(spec: unknown, oldSpec: unknown) {
+            return request('HetznerServer', spec, {
+                operation: 'UPDATE',
+                oldObject: { spec: oldSpec },
+            });
+        }
+
+        it('does not re-check a catalog field the update leaves alone', async () => {
+            const response = await validator.review(update(retired, retired));
+
+            expect(response).toEqual({ uid: 'review-1', allowed: true });
+        });
+
+        it('lets another field change next to a retired value', async () => {
+            const response = await validator.review(
+                update({ ...retired, location: 'fsn1' }, retired),
+            );
+
+            expect(response.allowed).toBe(true);
+        });
+
+        it('still checks a field whose value the update changes', async () => {
+            const response = await validator.review(
+                update({ ...validServer, serverType: 'cpx99' }, validServer),
+            );
+
+            expect(response.allowed).toBe(false);
+            expect(response.status?.message).toMatch(/spec.serverType "cpx99" does not exist/);
+        });
+
+        it('checks a catalog field the update adds', async () => {
+            const response = await validator.review(
+                update({ ...validServer, iso: 'not-an-iso' }, validServer),
+            );
+
+            expect(response.allowed).toBe(false);
+            expect(response.status?.message).toMatch(/spec.iso "not-an-iso"/);
+        });
+
+        it('does not consult the catalog at all when no checked field changed', async () => {
+            await validator.review(update({ ...retired, name: 'renamed' }, retired));
+
+            expect(api.countRequests('GET /server_types')).toBe(0);
+            expect(api.countRequests('GET /locations')).toBe(0);
+        });
+
+        it('still runs the adapter’s pure validation on every update', async () => {
+            const response = await validator.review(
+                update({ image: 'ubuntu-24.04', location: 'nbg1' }, retired),
+            );
+
+            expect(response.allowed).toBe(false);
+            expect(response.status?.message).toMatch(/spec.serverType is required/);
+        });
+
+        it('checks everything when there is no old object to compare with', async () => {
+            const response = await validator.review(
+                request('HetznerServer', retired, { operation: 'UPDATE' }),
+            );
+
+            expect(response.allowed).toBe(false);
+        });
+    });
+
+    it('checks every catalog field on CREATE, even one that was fine yesterday', async () => {
+        const response = await validator.review(
+            request('HetznerServer', { ...validServer, serverType: 'cx11' }),
+        );
+
+        expect(response.allowed).toBe(false);
+    });
+
     it('gets out of the way when Hetzner is unreachable', async () => {
         api.failNext({
             match: 'GET /server_types',
