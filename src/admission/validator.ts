@@ -14,6 +14,11 @@
  * The catalog is advisory in one direction only. If Hetzner is unreachable the
  * webhook allows the request with a warning rather than blocking every apply in
  * the cluster on a third party's availability.
+ *
+ * On UPDATE only the catalog fields the change actually touches are checked.
+ * Hetzner retires server types and images over time; an object created with
+ * one must stay editable, or the only way to change anything about it is to
+ * delete and recreate the server.
  */
 
 import type { ResourceAdapter } from '../framework/types.js';
@@ -31,6 +36,14 @@ interface CatalogCheckedSpec {
     datacenter?: unknown;
     iso?: unknown;
 }
+
+const CATALOG_CHECKED_FIELDS = [
+    'serverType',
+    'image',
+    'location',
+    'datacenter',
+    'iso',
+] as const satisfies readonly (keyof CatalogCheckedSpec)[];
 
 export type AnyAdapter = ResourceAdapter<CommonSpec, CommonStatus, Labelled>;
 
@@ -71,7 +84,10 @@ export function createValidator(options: ValidatorOptions): Validator {
 
             let catalogProblems: string[] = [];
             try {
-                catalogProblems = await checkAgainstCatalog(catalog, spec as CatalogCheckedSpec);
+                catalogProblems = await checkAgainstCatalog(
+                    catalog,
+                    fieldsToCheck(request, spec as CatalogCheckedSpec),
+                );
             } catch (error) {
                 // Hetzner is unreachable. Blocking every apply in the cluster on
                 // that would be far worse than letting a typo through to a
@@ -96,8 +112,32 @@ export function createValidator(options: ValidatorOptions): Validator {
 }
 
 /**
+ * Narrows the spec to the catalog fields worth checking for this request.
+ *
+ * A CREATE checks everything. An UPDATE checks only the fields whose value
+ * differs from the stored object: a value Hetzner has since retired was valid
+ * when it was accepted, and re-checking it would make the object read-only.
+ * Without an old object to compare against, everything is checked.
+ */
+function fieldsToCheck(request: AdmissionRequest, spec: CatalogCheckedSpec): CatalogCheckedSpec {
+    const previous = request.oldObject?.spec;
+    if (request.operation !== 'UPDATE' || !previous || typeof previous !== 'object') {
+        return spec;
+    }
+
+    const changed: CatalogCheckedSpec = {};
+    for (const field of CATALOG_CHECKED_FIELDS) {
+        if (spec[field] !== (previous as CatalogCheckedSpec)[field]) {
+            changed[field] = spec[field];
+        }
+    }
+    return changed;
+}
+
+/**
  * Checks the fields whose valid values live in Hetzner's catalog rather than in
- * the CRD schema.
+ * the CRD schema. A catalog list is only fetched for a field that is present,
+ * so an update that touches none of them costs no Hetzner request at all.
  */
 async function checkAgainstCatalog(
     catalog: CatalogApi,
@@ -113,50 +153,39 @@ async function checkAgainstCatalog(
      * against an empty list would break every apply in the cluster, so an empty
      * catalog is treated as "no opinion".
      */
-    function check(field: string, value: unknown, valid: string[]): void {
-        if (typeof value !== 'string' || !value || valid.length === 0) {
+    async function check(
+        field: string,
+        value: unknown,
+        load: () => Promise<(string | null | undefined)[]>,
+    ): Promise<void> {
+        if (typeof value !== 'string' || !value) {
             return;
         }
-        if (!valid.includes(value)) {
+        const valid = (await load()).filter((name): name is string => Boolean(name));
+        if (valid.length > 0 && !valid.includes(value)) {
             problems.push(unknownValue(field, value, valid));
         }
     }
 
-    check(
-        'spec.serverType',
-        spec.serverType,
+    await check('spec.serverType', spec.serverType, async () =>
         (await catalog.serverTypes()).map((type) => type.name),
     );
-    check(
-        'spec.location',
-        spec.location,
+    await check('spec.location', spec.location, async () =>
         (await catalog.locations()).map((location) => location.name),
     );
-    check(
-        'spec.datacenter',
-        spec.datacenter,
+    await check('spec.datacenter', spec.datacenter, async () =>
         (await catalog.datacenters()).map((datacenter) => datacenter.name),
     );
 
     // A numeric image is a snapshot id, which the catalog of *system* images
     // does not list; only named images are checkable here.
     if (typeof spec.image !== 'string' || !/^\d+$/.test(spec.image)) {
-        check(
-            'spec.image',
-            spec.image,
-            (await catalog.systemImages())
-                .map((image) => image.name)
-                .filter((name): name is string => Boolean(name)),
+        await check('spec.image', spec.image, async () =>
+            (await catalog.systemImages()).map((image) => image.name),
         );
     }
 
-    check(
-        'spec.iso',
-        spec.iso,
-        (await catalog.isos())
-            .map((iso) => iso.name)
-            .filter((name): name is string => Boolean(name)),
-    );
+    await check('spec.iso', spec.iso, async () => (await catalog.isos()).map((iso) => iso.name));
 
     return problems;
 }
