@@ -43,6 +43,15 @@ const NOTHING: StepResult = {};
 /** How long to wait while a power transition is in flight. */
 const REQUEUE_WHILE_POWERING_MS = 10_000;
 
+/**
+ * Where "now" comes from. The engine has its own injectable clock but does not
+ * hand it to adapters, so the steps that measure elapsed time take one of their
+ * own; tests advance it instead of sleeping through a grace period.
+ */
+export type Clock = () => Date;
+
+export const systemClock: Clock = () => new Date();
+
 export function desiredPowerState(spec: HetznerServerSpec): PowerState {
     return spec.powerState ?? 'Running';
 }
@@ -60,6 +69,7 @@ export async function convergeServerType(
     context: ServerContext,
     remote: Server,
     log: ChangeLog,
+    clock: Clock = systemClock,
 ): Promise<StepResult> {
     const { spec } = context;
     const actualType = remote.server_type?.name;
@@ -102,18 +112,20 @@ export async function convergeServerType(
                 requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
             };
 
-        case 'running':
-            context.logger.info('Powering the server off so it can be resized');
-            await api.shutdown(remote.id);
-            log.record('requested a shutdown in order to resize');
+        case 'running': {
+            // The same shutdown-then-force escalation as `powerState: Stopped`.
+            // It has to be the same code: the adapter stops the pass after a
+            // disruptive step, so the escalation in convergePowerState would
+            // never be reached from here, and a guest that ignores ACPI would be
+            // asked to shut down again on every pass, forever.
+            const result = await stopGracefully(api, context, remote, log, clock, 'to resize');
             return {
-                acted: true,
-                statusPatch: {
-                    pendingOperation: 'Resizing',
-                    shutdownRequestedAt: new Date().toISOString(),
-                },
-                requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
+                ...result,
+                // Remember that the operator, not the user, is stopping the
+                // server, so the 'off' branch knows to start it again afterwards.
+                statusPatch: { ...result.statusPatch, pendingOperation: 'Resizing' },
             };
+        }
 
         default:
             // stopping / starting / migrating: wait for Hetzner to settle.
@@ -138,10 +150,17 @@ export async function convergeImage(
 
     const actual = describeImage(remote);
     if (!spec.allowDataLoss) {
+        // A snapshot has no name, so a server built from one can only ever match
+        // its numeric id. Say so, because the fix may be to change spec.image
+        // rather than to erase the disk.
+        const hint =
+            remote.image && remote.image.name == null
+                ? ` That is a snapshot, which only matches spec.image "${remote.image.id}"; set that to keep the disk.`
+                : '';
         return {
             blocked:
                 `spec.image is "${spec.image}" but the server was built from "${actual}". ` +
-                'Rebuilding erases the disk, so set spec.allowDataLoss: true to apply it.',
+                `Rebuilding erases the disk, so set spec.allowDataLoss: true to apply it.${hint}`,
         };
     }
 
@@ -166,6 +185,7 @@ export async function convergePowerState(
     context: ServerContext,
     remote: Server,
     log: ChangeLog,
+    clock: Clock = systemClock,
 ): Promise<StepResult> {
     const { spec } = context;
     const desired = desiredPowerState(spec);
@@ -200,21 +220,43 @@ export async function convergePowerState(
         return { requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
     }
 
+    return stopGracefully(api, context, remote, log, clock);
+}
+
+/**
+ * Takes a running server one step towards being off.
+ *
+ * First pass: ask the guest to shut down and note when. Later passes: wait, and
+ * once the grace period is over cut the power. The request is deliberately not
+ * re-sent while waiting — that would restart the clock each pass, and a guest
+ * that ignores ACPI would then never be forced off.
+ */
+async function stopGracefully(
+    api: ServerApi,
+    context: ServerContext,
+    remote: Server,
+    log: ChangeLog,
+    clock: Clock,
+    purpose?: string,
+): Promise<StepResult> {
+    const { spec } = context;
+    const suffix = purpose ? ` ${purpose}` : '';
+
     const requestedAt = context.resource.status?.shutdownRequestedAt;
     if (!requestedAt) {
-        context.logger.info('Asking the guest to shut down');
+        context.logger.info('Asking the guest to shut down', { purpose: purpose ?? 'to stop' });
         await api.shutdown(remote.id);
-        log.record('requested a graceful shutdown');
+        log.record(`requested a graceful shutdown${suffix}`);
         return {
             acted: true,
-            statusPatch: { shutdownRequestedAt: new Date().toISOString() },
+            statusPatch: { shutdownRequestedAt: clock().toISOString() },
             requeueAfterMs: REQUEUE_WHILE_POWERING_MS,
         };
     }
 
     const graceMs =
         (spec.gracefulShutdownTimeoutSeconds ?? DEFAULT_GRACEFUL_SHUTDOWN_SECONDS) * 1000;
-    const waitedMs = Date.now() - new Date(requestedAt).getTime();
+    const waitedMs = clock().getTime() - new Date(requestedAt).getTime();
     if (waitedMs < graceMs) {
         return { requeueAfterMs: REQUEUE_WHILE_POWERING_MS };
     }
@@ -224,7 +266,7 @@ export async function convergePowerState(
         graceMs,
     });
     await api.powerOff(remote.id);
-    log.record('forced the server off after the graceful shutdown timed out');
+    log.record(`forced the server off${suffix} after the graceful shutdown timed out`);
     return {
         acted: true,
         statusPatch: { shutdownRequestedAt: null },
@@ -335,7 +377,9 @@ export function imageMatches(desired: string, remote: Server): boolean {
     if (/^\d+$/.test(desired)) {
         return image.id === Number(desired);
     }
-    return image.name === undefined || image.name === null || image.name === desired;
+    // A nameless image is a snapshot, and a snapshot is never "ubuntu-24.04".
+    // Letting it pass would make a rebuild request disappear without a trace.
+    return image.name === desired;
 }
 
 export function describeImage(remote: Server): string {
