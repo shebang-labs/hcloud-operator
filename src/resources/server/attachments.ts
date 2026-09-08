@@ -19,6 +19,12 @@ import type { ServerContext, StepResult } from './lifecycle.js';
  * Attach anything missing, detach anything no longer declared, and fix alias
  * IPs in place. Detaching is done last so a server is never briefly cut off
  * from every network it has.
+ *
+ * A primary IP that differs from `spec.networks[].ip` is the one change Hetzner
+ * cannot make in place: the server has to leave the network and rejoin with the
+ * new address. That drops its private connectivity for the duration, which is
+ * downtime for anything reaching it over that network — so it sits behind the
+ * same `allowDowntime` guard as a resize rather than behind a new flag.
  */
 export async function convergeNetworks(
     api: ServerApi,
@@ -50,11 +56,30 @@ export async function convergeNetworks(
         (remote.private_net ?? []).map((entry) => [entry.network, entry] as const),
     );
 
+    const blockers: string[] = [];
+
     for (const [networkId, wanted] of desired) {
         const existing = attached.get(networkId);
         if (!existing) {
             await api.attachToNetwork(remote.id, networkId, wanted.ip, wanted.aliasIps);
             log.record(`attached to network ${networkId}`);
+            continue;
+        }
+        if (wanted.ip && existing.ip !== wanted.ip) {
+            if (!context.spec.allowDowntime) {
+                blockers.push(
+                    `spec.networks asks for IP ${wanted.ip} in network ${networkId} but the server ` +
+                        `has ${existing.ip ?? 'none'}. Changing it detaches and re-attaches the server, ` +
+                        'interrupting its private connectivity, so set spec.allowDowntime: true to apply it.',
+                );
+                continue;
+            }
+            await api.detachFromNetwork(remote.id, networkId);
+            await api.attachToNetwork(remote.id, networkId, wanted.ip, wanted.aliasIps);
+            log.record(
+                `re-attached to network ${networkId} with IP ${wanted.ip} (was ${existing.ip ?? 'none'})`,
+            );
+            // Re-attaching set the alias IPs too.
             continue;
         }
         if (!sameSet(existing.alias_ips ?? [], wanted.aliasIps)) {
@@ -70,7 +95,10 @@ export async function convergeNetworks(
         }
     }
 
-    return { acted: log.changed };
+    return {
+        acted: log.changed,
+        ...(blockers.length ? { blocked: blockers.join(' ') } : {}),
+    };
 }
 
 /** Placement group membership. Hetzner requires the server to be powered off. */
