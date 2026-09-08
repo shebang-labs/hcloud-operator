@@ -63,6 +63,39 @@ function serializeError(value: unknown): unknown {
     return value;
 }
 
+/**
+ * Serialises a log line without ever throwing. A circular object or a BigInt
+ * in a field would otherwise turn a log call into an exception — and a log
+ * call inside an informer callback into an uncaughtException that takes the
+ * operator down while it was trying to report something.
+ */
+function toJsonLine(payload: Record<string, unknown>): string {
+    try {
+        return JSON.stringify(payload);
+    } catch {
+        // Fall back field by field, so only the offending values degrade to a
+        // string and the rest of the line stays structured.
+        const fallback: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(payload)) {
+            try {
+                JSON.stringify(value);
+                fallback[key] = value;
+            } catch {
+                fallback[key] = String(value);
+            }
+        }
+        try {
+            return JSON.stringify(fallback);
+        } catch {
+            return JSON.stringify({
+                time: String(payload.time),
+                level: String(payload.level),
+                message: String(payload.message),
+            });
+        }
+    }
+}
+
 export function createLogger(
     level: LogLevel = 'info',
     base: LogFields = {},
@@ -87,7 +120,7 @@ export function createLogger(
             payload.error = serializeError(payload.error);
         }
 
-        sink.write(JSON.stringify(payload), lineLevel);
+        sink.write(toJsonLine(payload), lineLevel);
     }
 
     return {

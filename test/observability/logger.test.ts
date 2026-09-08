@@ -117,3 +117,34 @@ describe('nullLogger', () => {
         }).not.toThrow();
     });
 });
+
+describe('unserialisable fields', () => {
+    it('never throws, and still gets the message out', () => {
+        const { logger, lines } = capture();
+        const circular: Record<string, unknown> = { name: 'loop' };
+        circular.self = circular;
+
+        expect(() =>
+            logger.info('odd payload', { circular, big: BigInt(10), fine: 'ok' }),
+        ).not.toThrow();
+
+        expect(lines).toHaveLength(1);
+        expect(lines[0]?.payload).toMatchObject({
+            level: 'info',
+            message: 'odd payload',
+            fine: 'ok',
+        });
+        expect(typeof lines[0]?.payload.circular).toBe('string');
+        expect(lines[0]?.payload.big).toBe('10');
+    });
+
+    it('keeps the base fields of a child logger on the fallback line', () => {
+        const { logger, lines } = capture();
+        const circular: Record<string, unknown> = {};
+        circular.self = circular;
+
+        logger.child({ kind: 'HetznerServer' }).error('failed', { circular });
+
+        expect(lines[0]?.payload).toMatchObject({ kind: 'HetznerServer', message: 'failed' });
+    });
+});
