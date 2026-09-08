@@ -367,3 +367,142 @@ describe('failure bookkeeping', () => {
         await queue.stop();
     });
 });
+
+describe('permanent failures', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const permanent = () => Object.assign(new Error('bad spec'), { retryable: false });
+    const isRetryable = (error: unknown) => (error as { retryable?: boolean }).retryable !== false;
+
+    it('does not schedule a retry for an error the predicate calls permanent', async () => {
+        let attempts = 0;
+        const queue = new WorkQueue({
+            name: 'test',
+            logger: nullLogger,
+            baseDelayMs: 1_000,
+            isRetryable,
+            handler: async () => {
+                attempts += 1;
+                throw permanent();
+            },
+        });
+
+        queue.add('ns/a');
+        await drain();
+        expect(attempts).toBe(1);
+        expect(queue.pending).toBe(0);
+
+        // Long past any backoff: the resync is what re-checks it, not the queue.
+        await vi.advanceTimersByTimeAsync(60_000);
+        await drain();
+        expect(attempts).toBe(1);
+
+        await queue.stop();
+    });
+
+    it('clears the backoff after a permanent failure, so a later transient one starts small', async () => {
+        const attempts: number[] = [];
+        let error: () => Error = permanent;
+        const queue = new WorkQueue({
+            name: 'test',
+            logger: nullLogger,
+            baseDelayMs: 1_000,
+            isRetryable,
+            handler: async () => {
+                attempts.push(Date.now());
+                throw error();
+            },
+        });
+
+        queue.add('ns/a');
+        await drain();
+        expect(attempts).toHaveLength(1);
+
+        // The resync brings the key back, and now the failure is transient.
+        error = () => new Error('flaky');
+        queue.add('ns/a');
+        await drain();
+        expect(attempts).toHaveLength(2);
+
+        // First retry at baseDelay, not at the doubled delay of a second attempt.
+        await vi.advanceTimersByTimeAsync(1_200);
+        await drain();
+        expect(attempts).toHaveLength(3);
+
+        await queue.stop();
+    });
+
+    it('still reruns a permanently failing key whose object changed mid-run', async () => {
+        let runs = 0;
+        let release = () => {};
+        const blocked = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queue = new WorkQueue({
+            name: 'test',
+            logger: nullLogger,
+            isRetryable,
+            handler: async () => {
+                runs += 1;
+                if (runs === 1) {
+                    await blocked;
+                    throw permanent();
+                }
+                return {};
+            },
+        });
+
+        queue.add('ns/a');
+        await drain();
+        queue.add('ns/a'); // the user fixed the spec while we were failing on the old one
+        release();
+        await drain();
+
+        expect(runs).toBe(2);
+        await queue.stop();
+    });
+
+    it('retries everything when no predicate is given', async () => {
+        let attempts = 0;
+        const queue = new WorkQueue({
+            name: 'test',
+            logger: nullLogger,
+            baseDelayMs: 1_000,
+            handler: async () => {
+                attempts += 1;
+                throw permanent();
+            },
+        });
+
+        queue.add('ns/a');
+        await drain();
+        await vi.advanceTimersByTimeAsync(1_200);
+        await drain();
+
+        expect(attempts).toBe(2);
+        await queue.stop();
+    });
+});
+
+describe('scheduling', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('does not schedule a delayed run for a key that is already waiting to run', async () => {
+        const queue = new WorkQueue({
+            name: 'test',
+            logger: nullLogger,
+            concurrency: 1,
+            handler: async () => new Promise(() => {}) as Promise<{ requeueAfterMs?: number }>,
+        });
+
+        queue.add('ns/a'); // occupies the only worker
+        queue.add('ns/b'); // ready, waiting for a worker
+        await drain();
+        queue.add('ns/b', 60_000);
+
+        // Still just the one ready entry: the imminent run supersedes the timer.
+        expect(queue.pending).toBe(1);
+    });
+});
