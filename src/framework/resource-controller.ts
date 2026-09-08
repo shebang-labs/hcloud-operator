@@ -16,6 +16,7 @@
  */
 
 import { type Informer, type KubernetesListObject, makeInformer } from '@kubernetes/client-node';
+import { isRetryable } from '../hcloud/errors.js';
 import type { Labelled } from '../hcloud/types.js';
 import type { KubernetesClients } from '../kube/client.js';
 import {
@@ -91,6 +92,9 @@ export class ResourceController<
             concurrency: options.concurrency,
             baseDelayMs: options.retryBaseDelayMs,
             maxDelayMs: options.retryMaxDelayMs,
+            // Hetzner's own verdict on whether a failure is transient; anything
+            // else (a Kubernetes error, a bug) stays retryable by default.
+            isRetryable,
             handler: (key) => this.handle(key),
         });
 

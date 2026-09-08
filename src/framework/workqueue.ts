@@ -10,7 +10,9 @@
  *   - serialization: one object is never reconciled by two workers at the same
  *     time (which is what stops two servers being created for one resource);
  *   - retries with exponential backoff, so a broken object does not hammer the
- *     Hetzner API in a hot loop;
+ *     Hetzner API in a hot loop — and no retry at all for failures that cannot
+ *     fix themselves (a bad spec, a missing permission), which only the next
+ *     spec change or periodic resync can resolve;
  *   - a bounded number of parallel reconciles.
  */
 
@@ -35,6 +37,13 @@ export interface WorkQueueOptions {
     baseDelayMs?: number;
     /** Upper bound of the retry delay. */
     maxDelayMs?: number;
+    /**
+     * Decides whether a failed reconcile is worth a backed-off retry. Without
+     * it every error is retried, which is the safe default for a queue that
+     * knows nothing about its errors; the controller passes the Hetzner
+     * classification so permanent failures stop burning API quota.
+     */
+    isRetryable?: (error: unknown) => boolean;
 }
 
 interface ScheduledItem {
@@ -48,6 +57,7 @@ export class WorkQueue {
     private readonly concurrency: number;
     private readonly baseDelayMs: number;
     private readonly maxDelayMs: number;
+    private readonly isRetryable: (error: unknown) => boolean;
 
     readonly name: string;
 
@@ -73,6 +83,7 @@ export class WorkQueue {
         this.concurrency = Math.max(1, options.concurrency ?? 2);
         this.baseDelayMs = Math.max(1, options.baseDelayMs ?? 2_000);
         this.maxDelayMs = Math.max(this.baseDelayMs, options.maxDelayMs ?? 5 * 60 * 1000);
+        this.isRetryable = options.isRetryable ?? (() => true);
     }
 
     /** Adds a key, optionally after a delay. Adding a queued key is a no-op. */
@@ -85,6 +96,12 @@ export class WorkQueue {
             // Reconcile it again as soon as the current run finishes: the object
             // changed while we were working with an older version of it.
             this.dirty.add(key);
+            return;
+        }
+
+        if (this.readySet.has(key)) {
+            // Already queued, and about to run: that run supersedes any delayed
+            // one, so a timer here would only fire a redundant reconcile later.
             return;
         }
 
@@ -111,10 +128,6 @@ export class WorkQueue {
         if (existing) {
             clearTimeout(existing.timer);
             this.scheduled.delete(key);
-        }
-
-        if (this.readySet.has(key)) {
-            return; // Already queued: de-duplicated.
         }
 
         this.ready.push(key);
@@ -197,6 +210,10 @@ export class WorkQueue {
     /**
      * Runs the handler for one key. Never throws: it returns the delay after
      * which the key should be processed again, or undefined for "nothing to do".
+     *
+     * A failure the predicate calls permanent gets no retry and no backoff
+     * state: the handler has already written it into the object's status, and
+     * only a spec change (a watch event) or the periodic resync can move it on.
      */
     private async process(key: string): Promise<number | undefined> {
         try {
@@ -211,13 +228,26 @@ export class WorkQueue {
                 ? Math.max(0, result.requeueAfterMs)
                 : undefined;
         } catch (error) {
-            this.dirty.delete(key);
+            // One broken object must never take the operator down: we log and
+            // keep processing every other key, whatever happens to this one.
+            const changed = this.dirty.delete(key);
+
+            if (!this.isRetryable(error)) {
+                this.failures.delete(key);
+                this.logger.error('Reconciliation failed permanently, not retrying', {
+                    queue: this.name,
+                    resource: key,
+                    error,
+                });
+                // The object changed while we were failing on its old spec;
+                // the new one may well be fine, so look at it right away.
+                return changed ? 0 : undefined;
+            }
+
             const attempt = (this.failures.get(key) ?? 0) + 1;
             this.failures.set(key, attempt);
             const delayMs = this.retryDelay(attempt, error);
 
-            // One broken object must never take the operator down: we log,
-            // schedule a retry, and keep processing every other key.
             this.logger.error('Reconciliation failed', {
                 queue: this.name,
                 resource: key,
