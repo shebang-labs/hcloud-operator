@@ -17,6 +17,7 @@
  * only collect `locked` errors.
  */
 
+import { REQUEUE_WHILE_TRANSITIONING_MS } from '../../framework/reconcile-engine.js';
 import type { ResourceAdapter, UpdateOutcome } from '../../framework/types.js';
 import { HetznerApiError } from '../../hcloud/errors.js';
 import type { ServerApi } from '../../hcloud/resources/servers.js';
@@ -30,6 +31,7 @@ import {
     convergeProtection,
 } from './attachments.js';
 import {
+    type Clock,
     convergeBackups,
     convergeImage,
     convergeIso,
@@ -39,6 +41,7 @@ import {
     describeImage,
     desiredPowerState,
     type StepResult,
+    systemClock,
 } from './lifecycle.js';
 import {
     type HetznerServerSpec,
@@ -47,14 +50,20 @@ import {
     TRANSITIONAL_STATES,
 } from './spec.js';
 
-/** How long to wait while Hetzner is working on the server. */
-const REQUEUE_WHILE_TRANSITIONING_MS = 10_000;
 /** How long to wait when the server exists but is not running. */
 const REQUEUE_WHILE_NOT_RUNNING_MS = 60_000;
 
+export interface ServerAdapterOptions {
+    /** Source of "now" for the graceful-shutdown timeout. Tests inject one. */
+    now?: Clock;
+}
+
 export function createServerAdapter(
     api: ServerApi,
+    options: ServerAdapterOptions = {},
 ): ResourceAdapter<HetznerServerSpec, HetznerServerStatus, Server> {
+    const clock = options.now ?? systemClock;
+
     return {
         descriptor: serverDescriptor,
         api,
@@ -105,9 +114,14 @@ export function createServerAdapter(
                 spec.sshKeyRefs,
                 context.namespace,
             );
+            // POST /servers only takes network ids and lets Hetzner pick the
+            // address, so a network with a requested IP is left for
+            // convergeNetworks to attach on the next pass, where attach_to_network
+            // can honour it. Networks without one are joined at create so the
+            // server boots with them.
             const networkIds = await context.refs.resolveAll(
                 'HetznerNetwork',
-                (spec.networks ?? []).map((entry) => entry.networkRef),
+                (spec.networks ?? []).filter((entry) => !entry.ip).map((entry) => entry.networkRef),
                 context.namespace,
             );
             const placementGroupId = spec.placementGroupRef
@@ -179,17 +193,29 @@ export function createServerAdapter(
                 return result.acted ?? false;
             };
 
-            // Disruptive steps first, and only one of them per pass.
-            const resized = apply(await convergeServerType(api, context, remote, log));
-            if (!resized) {
-                const rebuilt = apply(await convergeImage(api, context, remote, log));
-                if (!rebuilt) {
-                    apply(await convergePowerState(api, context, remote, log));
-                }
+            const outcome = (): UpdateOutcome => ({
+                changed: log.changed,
+                changes: log.changes,
+                ...(blockers.length ? { blocked: blockers.join(' ') } : {}),
+                ...(requeueAfterMs !== undefined ? { requeueAfterMs } : {}),
+                ...(Object.keys(statusPatch).length ? { statusPatch } : {}),
+            });
+
+            // Disruptive steps first, and only one of them per pass. Once one has
+            // acted the server is locked or about to change state, so the pass
+            // ends here; the requeue the step asked for brings us back.
+            if (apply(await convergeServerType(api, context, remote, log, clock))) {
+                return outcome();
+            }
+            if (apply(await convergeImage(api, context, remote, log))) {
+                return outcome();
+            }
+            if (apply(await convergePowerState(api, context, remote, log, clock))) {
+                return outcome();
             }
 
-            // The cheap, non-disruptive steps run every pass. They are safe even
-            // while a power transition is in flight.
+            // The cheap, non-disruptive steps. They are safe even while a power
+            // transition we did not start this pass is in flight.
             apply(await convergeBackups(api, context, remote, log));
             apply(await convergeRescue(api, context, remote, log));
             apply(await convergeIso(api, context, remote, log));
@@ -198,13 +224,7 @@ export function createServerAdapter(
             apply(await convergeDnsPtr(api, context, remote, log));
             apply(await convergeProtection(api, context, remote, log));
 
-            return {
-                changed: log.changed,
-                changes: log.changes,
-                ...(blockers.length ? { blocked: blockers.join(' ') } : {}),
-                ...(requeueAfterMs !== undefined ? { requeueAfterMs } : {}),
-                ...(Object.keys(statusPatch).length ? { statusPatch } : {}),
-            };
+            return outcome();
         },
 
         /**
@@ -230,14 +250,15 @@ export function createServerAdapter(
         },
 
         project(remote, spec) {
-            const { phase, ready, message } = describeServerState(remote);
+            const { phase, ready: running, message } = describeServerState(remote);
             // A server that is off is only a problem when the spec asked for it
-            // to be on. When `powerState: Stopped` is what was requested, the object
-            // has reached its desired state and must stop asking to be looked at
-            // again — otherwise a deliberately stopped server re-reconciles
-            // every minute, forever, for no reason.
-            const atDesiredPowerState =
-                (desiredPowerState(spec) === 'Stopped') === (remote.status === 'off');
+            // to be on. When `powerState: Stopped` is what was requested, the
+            // object has reached its desired state: it is Ready — Hetzner attaches
+            // volumes and moves placement groups on stopped servers — and it must
+            // stop asking to be looked at again, otherwise a deliberately stopped
+            // server re-reconciles every minute, forever, for no reason.
+            const ready =
+                running || (remote.status === 'off' && desiredPowerState(spec) === 'Stopped');
             const privateIps = (remote.private_net ?? [])
                 .map((entry) => entry.ip)
                 .filter((ip): ip is string => Boolean(ip));
@@ -269,7 +290,7 @@ export function createServerAdapter(
                 },
                 ...(TRANSITIONAL_STATES.has(remote.status)
                     ? { requeueAfterMs: REQUEUE_WHILE_TRANSITIONING_MS }
-                    : ready || atDesiredPowerState
+                    : ready
                       ? {}
                       : { requeueAfterMs: REQUEUE_WHILE_NOT_RUNNING_MS }),
             };
@@ -335,7 +356,8 @@ export function describeServerState(server: Server): {
             return { phase: 'Updating', ready: false, message: 'The server is shutting down' };
         case 'off':
             // Not an error: `spec.powerState: Stopped` is a legitimate desired state.
-            // The Synced condition, not Ready, reports whether that was asked for.
+            // Only `project`, which sees the spec, can tell whether it was asked
+            // for; it upgrades `ready` when it was.
             return { phase: 'Ready', ready: false, message: 'The server is powered off' };
         case 'deleting':
             return { phase: 'Deleting', ready: false, message: 'The server is being deleted' };

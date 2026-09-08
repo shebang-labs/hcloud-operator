@@ -10,7 +10,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Server } from '../../src/hcloud/types.js';
-import { CONDITION_SYNCED } from '../../src/kube/conditions.js';
+import { CONDITION_READY, CONDITION_SYNCED } from '../../src/kube/conditions.js';
 import { createNetworkAdapter } from '../../src/resources/network.js';
 import { createPlacementGroupAdapter } from '../../src/resources/placement-group.js';
 import { createServerAdapter, describeServerState } from '../../src/resources/server/index.js';
@@ -121,7 +121,7 @@ describe('creation', () => {
         await servers.settle(
             server({
                 sshKeyRefs: [{ name: 'ops' }],
-                networks: [{ networkRef: { name: 'prod' }, ip: '10.0.1.11' }],
+                networks: [{ networkRef: { name: 'prod' } }],
                 placementGroupRef: { name: 'web' },
             }),
         );
@@ -277,6 +277,26 @@ describe('resizing', () => {
         });
     });
 
+    it('leaves the cheap steps for the next pass when a disruptive step acted', async () => {
+        // Hetzner locks the server for the duration of the shutdown; enabling
+        // backups in the same pass would only fail with `locked`.
+        const resource = server({ allowDowntime: true });
+        await servers.settle(resource);
+        const id = resource.status?.id;
+        harness.api.reset();
+
+        resource.spec.serverType = 'cpx31';
+        resource.spec.backups = true;
+        await servers.once(resource);
+
+        expect(harness.api.countRequests(`POST /servers/${id}/actions/shutdown`)).toBe(1);
+        expect(harness.api.countRequests(`POST /servers/${id}/actions/enable_backup`)).toBe(0);
+
+        // Nothing is lost: the following passes pick the cheap step up.
+        await servers.settle(resource);
+        expect(only().backup_window).toBeTruthy();
+    });
+
     it('clears pendingOperation once the type matches again', async () => {
         const resource = server({ allowDowntime: true, powerState: 'Stopped' });
         await servers.settle(resource);
@@ -298,6 +318,21 @@ describe('rebuilding', () => {
 
         expect(harness.api.countRequests('POST /servers/')).toBe(0);
         expect(resource.status?.message).toMatch(/erases the disk/);
+    });
+
+    it('treats a snapshot-built server as drift from a named image', async () => {
+        // A snapshot has no name, so it cannot be "ubuntu-24.04"; treating that
+        // as a match would make a rebuild request vanish without a trace.
+        const resource = server();
+        await servers.settle(resource);
+        only().image = { id: 4711, name: null };
+        harness.api.reset();
+
+        await servers.once(resource);
+
+        expect(harness.api.countRequests('POST /servers/')).toBe(0);
+        expect(resource.status?.message).toMatch(/built from "#4711"/);
+        expect(resource.status?.message).toMatch(/allowDataLoss/);
     });
 
     it('rebuilds when the guard is set', async () => {
@@ -404,6 +439,78 @@ describe('networks and placement groups', () => {
         resource.spec.networks = [];
         await servers.settle(resource);
         expect(only().private_net).toHaveLength(0);
+    });
+
+    it('attaches networks that want a fixed IP after create, so the IP is honoured', async () => {
+        // POST /servers only takes network ids, so a requested IP can only be
+        // applied by attach_to_network once the server exists.
+        const resource = server({
+            networks: [{ networkRef: { id: 10 }, ip: '10.0.1.11' }, { networkRef: { id: 20 } }],
+        });
+        await servers.settle(resource);
+        const id = resource.status?.id;
+
+        expect(harness.api.countRequests(`POST /servers/${id}/actions/attach_to_network`)).toBe(1);
+        expect(harness.api.lastBody(`POST /servers/${id}/actions/attach_to_network`)).toEqual({
+            network: 10,
+            ip: '10.0.1.11',
+        });
+        // Network 20 carries the address the fake hands out at create time, which
+        // is how we know it was joined there rather than attached afterwards.
+        expect(only().private_net).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ network: 20, ip: '10.0.1.100' }),
+                expect.objectContaining({ network: 10, ip: '10.0.1.11' }),
+            ]),
+        );
+        expect(only().private_net).toHaveLength(2);
+    });
+
+    it('refuses to move a fixed private IP without allowDowntime', async () => {
+        const resource = server({ networks: [{ networkRef: { id: 10 }, ip: '10.0.1.11' }] });
+        await servers.settle(resource);
+        const id = resource.status?.id;
+        harness.api.reset();
+
+        resource.spec.networks = [{ networkRef: { id: 10 }, ip: '10.0.1.12' }];
+        await servers.once(resource);
+
+        expect(harness.api.countRequests(`POST /servers/${id}/actions/detach_from_network`)).toBe(
+            0,
+        );
+        expect(servers.store.condition('default', 'example', CONDITION_SYNCED)).toMatchObject({
+            status: 'False',
+            reason: 'GuardRequired',
+        });
+        expect(resource.status?.message).toMatch(/allowDowntime/);
+        expect((only().private_net as Array<{ ip: string }>)[0]?.ip).toBe('10.0.1.11');
+    });
+
+    it('re-attaches with the new IP when allowDowntime is set', async () => {
+        const resource = server({
+            allowDowntime: true,
+            networks: [{ networkRef: { id: 10 }, ip: '10.0.1.11', aliasIps: ['10.0.1.200'] }],
+        });
+        await servers.settle(resource);
+        const id = resource.status?.id;
+        harness.api.reset();
+
+        resource.spec.networks = [
+            { networkRef: { id: 10 }, ip: '10.0.1.12', aliasIps: ['10.0.1.200'] },
+        ];
+        await servers.settle(resource);
+
+        expect(harness.api.countRequests(`POST /servers/${id}/actions/detach_from_network`)).toBe(
+            1,
+        );
+        expect(harness.api.lastBody(`POST /servers/${id}/actions/attach_to_network`)).toEqual({
+            network: 10,
+            ip: '10.0.1.12',
+            alias_ips: ['10.0.1.200'],
+        });
+        expect(only().private_net).toEqual([
+            expect.objectContaining({ network: 10, ip: '10.0.1.12', alias_ips: ['10.0.1.200'] }),
+        ]);
     });
 
     it('leaves attachments alone when spec.networks is absent', async () => {
@@ -593,6 +700,10 @@ describe('imageMatches', () => {
     it('does not report drift when the image is gone', () => {
         expect(imageMatches('ubuntu-24.04', withImage(null))).toBe(true);
     });
+
+    it('does not let a snapshot pass for a named image', () => {
+        expect(imageMatches('ubuntu-24.04', withImage({ id: 4711, name: null }))).toBe(false);
+    });
 });
 
 describe('settling', () => {
@@ -614,6 +725,31 @@ describe('settling', () => {
 
         expect(only().status).toBe('off');
         expect(result.requeueAfterMs).toBeUndefined();
+    });
+
+    it('reports a deliberately stopped server as Ready', async () => {
+        // Hetzner attaches volumes and moves placement groups on stopped servers,
+        // so "off" is a usable state when it is the one that was asked for.
+        const resource = server({ powerState: 'Stopped' });
+        await servers.settle(resource);
+
+        expect(only().status).toBe('off');
+        expect(resource.status?.phase).toBe('Ready');
+        expect(servers.store.condition('default', 'example', CONDITION_READY)).toMatchObject({
+            status: 'True',
+        });
+    });
+
+    it('does not report a server that should be on as Ready while it is off', () => {
+        const adapter = createServerAdapter(harness.hcloud.servers);
+        const off: Server = { id: 1, name: 'a', status: 'off' };
+
+        expect(adapter.project(off, { ...baseSpec, powerState: 'Stopped' })).toMatchObject({
+            ready: true,
+        });
+        expect(adapter.project(off, { ...baseSpec, powerState: 'Running' })).toMatchObject({
+            ready: false,
+        });
     });
 
     it('keeps asking while a server that should be on is off', async () => {
