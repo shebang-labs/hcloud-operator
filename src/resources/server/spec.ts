@@ -126,8 +126,11 @@ export interface HetznerServerSpec extends CommonSpec {
     upgradeDisk?: boolean;
 }
 
-/** A multi-step operation the operator is in the middle of. */
-export type PendingOperation = 'Resizing' | 'Rebuilding';
+/**
+ * A multi-step operation the operator is in the middle of. Only a resize needs
+ * one: a rebuild is a single Hetzner action, whatever the power state.
+ */
+export type PendingOperation = 'Resizing';
 
 export interface HetznerServerStatus extends CommonStatus {
     /** Hetzner's own status: running, off, starting, initializing, ... */

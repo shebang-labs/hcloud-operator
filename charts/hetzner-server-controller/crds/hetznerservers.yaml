@@ -369,7 +369,6 @@ spec:
                   type: string
                   enum:
                     - Resizing
-                    - Rebuilding
                   description: Set while the operator is part-way through a multi-step operation.
                   nullable: true
                 shutdownRequestedAt:
