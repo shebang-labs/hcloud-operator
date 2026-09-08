@@ -108,6 +108,31 @@ describe('createLeaderElector', () => {
         expect(store.writes[0]?.spec?.holderIdentity).toBe('operator-a');
     });
 
+    it('sends lease timestamps as MicroTime, which the API server insists on', async () => {
+        // A real API server rejects "2026-01-01T00:00:00.000Z" for a Lease:
+        // MicroTime must carry six fractional digits. The in-memory fake accepts
+        // anything, so this checks the serialized form explicitly.
+        const store = leaseApi();
+        const { elector, onStartedLeading } = makeElector(store);
+        onStartedLeading.mockImplementation(() => {
+            void elector.release();
+        });
+        await elector.run();
+
+        expect(store.writes.length).toBeGreaterThan(0);
+        for (const write of store.writes) {
+            const spec = JSON.parse(JSON.stringify(write)).spec as {
+                acquireTime?: string;
+                renewTime?: string;
+            };
+            for (const value of [spec.acquireTime, spec.renewTime]) {
+                if (value !== undefined) {
+                    expect(value).toMatch(/\.\d{6}Z$/);
+                }
+            }
+        }
+    });
+
     it('takes over a lease whose holder stopped renewing', async () => {
         const store = leaseApi({
             metadata: { name: 'hetzner-server-controller', resourceVersion: '1' },
@@ -221,5 +246,143 @@ describe('createLeaderElector', () => {
         await elector.release();
 
         expect(store.writes).toHaveLength(0);
+    });
+});
+
+/**
+ * A renewal that fails is not the same as a lease that was lost. The API server
+ * hiccups routinely (rolling upgrades, a slow etcd), and treating every blip as
+ * "another replica has taken over" restarts the operator for nothing.
+ */
+describe('renewal resilience', () => {
+    function failReadsFrom(store: ReturnType<typeof leaseApi>, failing: (read: number) => boolean) {
+        const api = store.api;
+        const realRead = api.readNamespacedLease.bind(api);
+        let reads = 0;
+        api.readNamespacedLease = (async (args) => {
+            reads += 1;
+            if (failing(reads)) {
+                throw new ApiException(500, 'apiserver blip', '', {});
+            }
+            return realRead(args);
+        }) as typeof api.readNamespacedLease;
+        return { reads: () => reads };
+    }
+
+    it('rides out a transient API error instead of giving up the lease', async () => {
+        const store = leaseApi();
+        // Read 1 is the acquire; read 2 is the first renewal.
+        const counter = failReadsFrom(store, (read) => read === 2);
+
+        const handle = makeElector(store, {
+            sleep: async (ms) => {
+                handle.advance(ms);
+                // Once a renewal has actually been written, we are done.
+                if (store.writes.length >= 2) {
+                    await handle.elector.release();
+                }
+            },
+        });
+        await handle.elector.run();
+
+        expect(handle.onStoppedLeading).not.toHaveBeenCalled();
+        expect(counter.reads()).toBeGreaterThanOrEqual(3);
+        expect(store.writes).toHaveLength(3); // create, renewal, release
+        expect(store.current?.spec?.holderIdentity).toBeUndefined();
+    });
+
+    it('gives the lease up once renewals have failed for a whole lease duration', async () => {
+        const store = leaseApi();
+        const counter = failReadsFrom(store, (read) => read >= 2);
+
+        let elapsed = 0;
+        const handle = makeElector(store, {
+            sleep: async (ms) => {
+                elapsed += ms;
+                handle.advance(ms);
+            },
+        });
+        await handle.elector.run();
+
+        expect(handle.onStoppedLeading).toHaveBeenCalledOnce();
+        expect(handle.elector.isLeader).toBe(false);
+        // The whole lease duration (15s) was spent retrying, not just one renewal.
+        expect(elapsed).toBeGreaterThanOrEqual(15_000);
+        expect(counter.reads()).toBeGreaterThanOrEqual(4);
+    });
+
+    it('reports a lost lease when the write says another replica now holds it', async () => {
+        const store = leaseApi();
+        const { elector, onStartedLeading, onStoppedLeading } = makeElector(store);
+
+        onStartedLeading.mockImplementation(() => {
+            // A newer resourceVersion than the one we read: our renewal 409s.
+            store.current = {
+                metadata: { name: 'hetzner-server-controller', resourceVersion: '42' },
+                spec: { holderIdentity: 'operator-a', leaseDurationSeconds: 15 },
+            };
+            const api = store.api;
+            api.readNamespacedLease = async () => ({
+                metadata: { name: 'hetzner-server-controller', resourceVersion: '2' },
+                spec: { holderIdentity: 'operator-a', leaseDurationSeconds: 15 },
+            });
+        });
+
+        await elector.run();
+
+        expect(onStoppedLeading).toHaveBeenCalledOnce();
+    });
+});
+
+describe('release', () => {
+    it('waits for an in-flight renewal, so a clean shutdown never looks like a lost lease', async () => {
+        const store = leaseApi();
+        const api = store.api;
+        const realReplace = api.replaceNamespacedLease.bind(api);
+        let replaces = 0;
+        let finishRenewal = () => {};
+        api.replaceNamespacedLease = (async (args) => {
+            replaces += 1;
+            // The acquire is a create, so the first replace is the first renewal.
+            // Hold it so release() runs while it is in flight.
+            if (replaces === 1) {
+                await new Promise<void>((resolve) => {
+                    finishRenewal = resolve;
+                });
+            }
+            return realReplace(args);
+        }) as typeof api.replaceNamespacedLease;
+
+        const { elector, onStoppedLeading } = makeElector(store);
+        const running = elector.run();
+        await vi.waitFor(() => expect(replaces).toBe(1));
+
+        const releasing = elector.release();
+        finishRenewal();
+        await releasing;
+        await running;
+
+        expect(onStoppedLeading).not.toHaveBeenCalled();
+        expect(store.current?.spec?.holderIdentity).toBeUndefined();
+    });
+});
+
+describe('lease body', () => {
+    it('keeps the original acquireTime across renewals', async () => {
+        const store = leaseApi();
+        const handle = makeElector(store, {
+            sleep: async (ms) => {
+                handle.advance(ms);
+                if (store.writes.length >= 3) {
+                    await handle.elector.release();
+                }
+            },
+        });
+        await handle.elector.run();
+
+        const [acquired, firstRenewal, secondRenewal] = store.writes;
+        expect(firstRenewal?.spec?.acquireTime).toEqual(acquired?.spec?.acquireTime);
+        expect(secondRenewal?.spec?.acquireTime).toEqual(acquired?.spec?.acquireTime);
+        expect(secondRenewal?.spec?.renewTime).not.toEqual(acquired?.spec?.renewTime);
     });
 });

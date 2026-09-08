@@ -12,13 +12,17 @@
  *   - to acquire, write the Lease with our identity, but only if it is unowned
  *     or its holder has not renewed within `leaseDurationSeconds`;
  *   - to keep leadership, renew every third of the lease duration;
- *   - if a renewal fails, we assume we lost the lease and stop immediately.
+ *   - if the Lease says another replica holds it, we lost and stop immediately;
+ *   - if a renewal merely *errors* (API server blip), we keep retrying until
+ *     the last successful renewal is a full lease duration old — that is the
+ *     moment another replica is allowed to take over, and before it nobody can
+ *     have. Stopping earlier would restart the operator on every hiccup.
  *
  * `resourceVersion` on every write makes the acquire a compare-and-swap, so two
  * replicas racing for a free lease cannot both win.
  */
 
-import type { CoordinationV1Api, V1Lease } from '@kubernetes/client-node';
+import { type CoordinationV1Api, type V1Lease, V1MicroTime } from '@kubernetes/client-node';
 import type { Logger } from '../observability/logger.js';
 import { isConflictError, isNotFoundError } from './store.js';
 
@@ -45,16 +49,30 @@ export interface LeaderElector {
     readonly isLeader: boolean;
 }
 
+type RenewalOutcome =
+    | { kind: 'renewed' }
+    /** The Lease itself says we no longer hold it. */
+    | { kind: 'lost' }
+    /** The API call did not complete; we may well still be leader. */
+    | { kind: 'failed'; error: unknown };
+
 export function createLeaderElector(options: LeaderElectionOptions): LeaderElector {
     const { coordination, namespace, leaseName, identity, logger } = options;
     const leaseDurationSeconds = Math.max(1, Math.round(options.leaseDurationMs / 1000));
     const renewIntervalMs = Math.max(1_000, Math.floor(options.leaseDurationMs / 3));
     const retryIntervalMs = Math.max(1_000, Math.floor(options.leaseDurationMs / 2));
+    // Shorter than the renew interval, so a blip costs one or two extra
+    // attempts, not a third of the lease.
+    const renewRetryMs = Math.max(1_000, Math.floor(renewIntervalMs / 2));
     const now = options.now ?? (() => new Date());
     const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 
     let leader = false;
     let released = false;
+    /** When we last wrote the Lease successfully. The clock the loss deadline runs on. */
+    let lastRenewedAt = 0;
+    /** The renewal currently talking to the API server, so release() can wait for it. */
+    let renewal: Promise<RenewalOutcome> | undefined;
 
     async function readLease(): Promise<V1Lease | null> {
         try {
@@ -81,8 +99,23 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
         return now().getTime() - new Date(renewedAt).getTime() > duration;
     }
 
+    /**
+     * Lease timestamps are Kubernetes MicroTime, which the API server parses
+     * with exactly six fractional digits. A plain Date serializes with three
+     * and is rejected with a 400 — the kind of thing no fake API server
+     * notices, so the wire format has its own test.
+     */
+    const microTime = (date: Date): Date => new V1MicroTime(date.getTime());
+
     function leaseBody(existing: V1Lease | null, transitions: number): V1Lease {
-        const timestamp = now();
+        const timestamp = microTime(now());
+        // acquireTime is "since when has this holder led": a renewal must not
+        // move it, or `kubectl describe lease` will always show a leader that
+        // took over seconds ago.
+        const acquireTime =
+            existing?.spec?.holderIdentity === identity && existing.spec.acquireTime
+                ? existing.spec.acquireTime
+                : timestamp;
         return {
             metadata: {
                 name: leaseName,
@@ -94,7 +127,7 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
             spec: {
                 holderIdentity: identity,
                 leaseDurationSeconds,
-                acquireTime: timestamp,
+                acquireTime,
                 renewTime: timestamp,
                 leaseTransitions: transitions,
             },
@@ -115,7 +148,7 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
             } catch (error) {
                 // Another replica created it in the same instant. Not an error:
                 // we simply lost this round.
-                if (isConflictError(error) || (error as { code?: number }).code === 409) {
+                if (isConflictError(error)) {
                     return false;
                 }
                 throw error;
@@ -144,24 +177,61 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
         }
     }
 
+    /**
+     * One renewal, never rejecting: the outcome carries the error instead, so
+     * release() can await the same promise without a second catch.
+     */
+    function startRenewal(): Promise<RenewalOutcome> {
+        return tryAcquireOrRenew().then(
+            (held): RenewalOutcome => (held ? { kind: 'renewed' } : { kind: 'lost' }),
+            (error): RenewalOutcome => ({ kind: 'failed', error }),
+        );
+    }
+
     async function renewUntilLost(): Promise<void> {
+        let waitMs = renewIntervalMs;
         while (!released) {
-            await sleep(renewIntervalMs);
+            await sleep(waitMs);
             if (released) {
                 return;
             }
-            let stillLeader = false;
-            try {
-                stillLeader = await tryAcquireOrRenew();
-            } catch (error) {
-                logger.error('Failed to renew the leader lease', { error });
-            }
-            if (!stillLeader) {
-                logger.warn('Lost the leader lease', { leaseName, identity });
-                leader = false;
-                await options.onStoppedLeading();
+
+            renewal = startRenewal();
+            const outcome = await renewal;
+            renewal = undefined;
+            if (released) {
+                // release() is handing the lease back; whatever this renewal saw
+                // is not a loss of leadership.
                 return;
             }
+
+            if (outcome.kind === 'renewed') {
+                lastRenewedAt = now().getTime();
+                waitMs = renewIntervalMs;
+                continue;
+            }
+
+            if (outcome.kind === 'failed') {
+                const sinceRenewalMs = now().getTime() - lastRenewedAt;
+                if (sinceRenewalMs < options.leaseDurationMs) {
+                    logger.warn('Failed to renew the leader lease, retrying', {
+                        error: outcome.error,
+                        sinceRenewalMs,
+                        retryInMs: renewRetryMs,
+                    });
+                    waitMs = renewRetryMs;
+                    continue;
+                }
+                logger.error('Could not renew the leader lease within its duration', {
+                    error: outcome.error,
+                    sinceRenewalMs,
+                });
+            }
+
+            logger.warn('Lost the leader lease', { leaseName, identity });
+            leader = false;
+            await options.onStoppedLeading();
+            return;
         }
     }
 
@@ -183,6 +253,7 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
 
                 if (acquired) {
                     leader = true;
+                    lastRenewedAt = now().getTime();
                     logger.info('Acquired the leader lease', { leaseName, identity });
                     await options.onStartedLeading();
                     await renewUntilLost();
@@ -195,6 +266,10 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
 
         async release() {
             released = true;
+            // A renewal in flight would otherwise race the hand-back: its write
+            // lands after ours and re-acquires the lease, or ours lands first
+            // and the renewal 409s and is mistaken for a lost lease.
+            await renewal;
             if (!leader) {
                 return;
             }
@@ -218,7 +293,7 @@ export function createLeaderElector(options: LeaderElectionOptions): LeaderElect
                             spec: {
                                 ...existing.spec,
                                 holderIdentity: undefined,
-                                renewTime: now(),
+                                renewTime: microTime(now()),
                             },
                         },
                     });
