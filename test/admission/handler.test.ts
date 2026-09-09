@@ -119,12 +119,19 @@ describe('the admission request handler', () => {
         expect(status).toBe(400);
     });
 
-    it('answers malformed JSON with a well-formed denial', async () => {
+    it('answers malformed JSON with a plain 400', async () => {
+        // There is no uid to echo, and the API server drops a response whose
+        // uid does not match anyway; a 400 at least names the problem.
         const { status, body } = await post('{not json');
 
-        expect(status).toBe(200);
-        expect(body.response.allowed).toBe(false);
-        expect(body.response.status.message).toMatch(/failed to process/);
+        expect(status).toBe(400);
+        expect(body.message).toMatch(/not valid JSON/);
+    });
+
+    it.each(['null', '42', '"text"'])('400s a JSON body that is not an object: %s', async (raw) => {
+        const { status } = await post(raw);
+
+        expect(status).toBe(400);
     });
 
     it('refuses an oversized body rather than buffering it', async () => {
@@ -135,8 +142,8 @@ describe('the admission request handler', () => {
 
         const { status, body } = await post(padded);
 
-        expect(status).toBe(200);
-        expect(body.response.allowed).toBe(false);
+        expect(status).toBe(400);
+        expect(body.message).toMatch(/exceeds 512 bytes/);
     });
 
     it('answers a validator that throws with a denial, not a crash', async () => {
@@ -161,6 +168,10 @@ describe('the admission request handler', () => {
 
         expect(response.status).toBe(200);
         expect(body.response.allowed).toBe(false);
+        // Without the uid the API server discards the denial and the user sees
+        // an opaque error instead of this message.
+        expect(body.response.uid).toBe('review-1');
+        expect(body.response.status.message).toMatch(/failed to process/);
 
         crashing.closeAllConnections?.();
         await new Promise<void>((resolve) => crashing.close(() => resolve()));
