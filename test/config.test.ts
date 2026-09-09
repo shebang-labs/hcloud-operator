@@ -7,12 +7,16 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../src/config/index.js';
 
-const minimal = { HETZNER_TOKEN: 'token' } as NodeJS.ProcessEnv;
+// What a Pod always has: the token from a Secret and its own namespace from
+// the downward API, which leader election needs to know where its Lease lives.
+const minimal = { HETZNER_TOKEN: 'token', POD_NAMESPACE: 'operators' } as NodeJS.ProcessEnv;
 
 describe('loadConfig', () => {
     it('refuses to start without a token, and says where to get one', () => {
         expect(() => loadConfig({})).toThrow(ConfigError);
-        expect(() => loadConfig({})).toThrow(/secret.example.yaml/);
+        // CI greps the image's output for this exact phrase.
+        expect(() => loadConfig({})).toThrow(/HETZNER_TOKEN is not set/);
+        expect(() => loadConfig({})).toThrow(/hetzner.token or hetzner.existingSecret/);
     });
 
     it('treats a blank token as missing', () => {
@@ -118,6 +122,34 @@ describe('loadConfig', () => {
         expect(loadConfig(minimal).leaderElectionIdentity).toMatch(/^local-\d+$/);
     });
 
+    it('refuses leader election without a namespace, naming both ways to set one', () => {
+        // A hardcoded fallback namespace would silently take a Lease in a
+        // namespace that may not exist, or belong to another install.
+        const env = { HETZNER_TOKEN: 'token' };
+
+        expect(() => loadConfig(env)).toThrow(ConfigError);
+        expect(() => loadConfig(env)).toThrow(/LEADER_ELECTION_NAMESPACE/);
+        expect(() => loadConfig(env)).toThrow(/POD_NAMESPACE/);
+        expect(() => loadConfig(env)).toThrow(/Helm chart/);
+    });
+
+    it('does not need a namespace when leader election is off', () => {
+        const config = loadConfig({ HETZNER_TOKEN: 'token', LEADER_ELECTION_ENABLED: 'false' });
+
+        expect(config.leaderElectionEnabled).toBe(false);
+        expect(config.leaderElectionNamespace).toBe('');
+    });
+
+    it('treats a blank namespace as unset', () => {
+        expect(() =>
+            loadConfig({
+                HETZNER_TOKEN: 'token',
+                POD_NAMESPACE: ' ',
+                LEADER_ELECTION_NAMESPACE: '',
+            }),
+        ).toThrow(/POD_NAMESPACE/);
+    });
+
     it('lets an explicit override beat the downward-API values', () => {
         const config = loadConfig({
             ...minimal,
@@ -126,6 +158,9 @@ describe('loadConfig', () => {
         });
 
         expect(config.leaderElectionIdentity).toBe('explicit');
+        expect(
+            loadConfig({ ...minimal, LEADER_ELECTION_NAMESPACE: 'leases' }).leaderElectionNamespace,
+        ).toBe('leases');
     });
 });
 
