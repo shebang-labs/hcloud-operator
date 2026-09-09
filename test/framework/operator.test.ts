@@ -127,6 +127,39 @@ describe('Operator', () => {
         expect(operator.synced).toBe(false);
     });
 
+    it('aborts the shared signal before stopping controllers, so waits on Hetzner give up', async () => {
+        const abortController = new AbortController();
+        const seenAborted: boolean[] = [];
+        const kind = fakeKind('A', 'as', 'a');
+        const originalBuild = kind.build.bind(kind);
+        kind.build = (environment) => {
+            const built = originalBuild(environment);
+            built.controller.stop = async () => {
+                // The queue's stop() waits for in-flight reconciles; they can
+                // only finish promptly if the abort has already happened.
+                seenAborted.push(abortController.signal.aborted);
+            };
+            return built;
+        };
+        const operator = new Operator({
+            kinds: [kind],
+            clients,
+            logger: nullLogger,
+            abortController,
+            resyncPeriodMs: 60_000,
+            concurrency: 1,
+            retryBaseDelayMs: 100,
+            retryMaxDelayMs: 1_000,
+        });
+
+        await operator.start();
+        expect(abortController.signal.aborted).toBe(false);
+
+        await operator.stop();
+        expect(abortController.signal.aborted).toBe(true);
+        expect(seenAborted).toEqual([true]);
+    });
+
     it('stops every controller even when one of them throws', async () => {
         const log: string[] = [];
         const failing = fakeKind('Bad', 'bads', 'bad');

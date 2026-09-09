@@ -138,15 +138,22 @@ export interface OperatorOptions {
     retryBaseDelayMs: number;
     retryMaxDelayMs: number;
     now?: () => Date;
+    /**
+     * Aborted by `stop()`. Shared with the Hetzner client, whose action waits
+     * are the only thing in a reconcile that can legitimately take minutes.
+     */
+    abortController?: AbortController;
 }
 
 export class Operator {
     private readonly controllers: RunnableController[] = [];
     private readonly logger: Logger;
+    private readonly abortController: AbortController | undefined;
     private running = false;
 
     constructor(options: OperatorOptions) {
         this.logger = options.logger;
+        this.abortController = options.abortController;
 
         const selected = selectKinds(options.kinds, options.enabledKinds);
         if (selected.length === 0) {
@@ -207,6 +214,10 @@ export class Operator {
 
     async stop(): Promise<void> {
         this.running = false;
+        // Before the controllers: each one waits for its in-flight reconciles,
+        // and a reconcile parked on a Hetzner action only returns promptly once
+        // the abort has reached it.
+        this.abortController?.abort();
         // Stopping in parallel is safe and much faster: each controller only
         // waits for its own in-flight reconciles.
         const results = await Promise.allSettled(
