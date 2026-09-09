@@ -46,34 +46,76 @@ export function createRequestHandler(options: HandlerOptions): RequestHandler {
 
         void readBody(request, maxBodyBytes)
             .then(async (raw) => {
-                const review = JSON.parse(raw) as AdmissionReview;
-                const admissionRequest = review.request;
-                if (!admissionRequest?.uid) {
+                // The API server matches the response on `request.uid` and
+                // discards one that does not echo it, so the uid is pinned down
+                // before anything that can fail. Without a parseable body there
+                // is no uid to echo and no well-formed answer is possible; a
+                // plain 400 at least names the problem in the API server's log.
+                const admissionRequest = parseReview(raw)?.request;
+                if (!admissionRequest) {
+                    send(400, { message: 'request body is not valid JSON for an AdmissionReview' });
+                    return;
+                }
+                if (!admissionRequest.uid) {
                     send(400, { message: 'AdmissionReview has no request.uid' });
                     return;
                 }
 
-                const result = await validator.review(admissionRequest);
-                if (!result.allowed) {
-                    logger.info('Rejected an object at admission', {
-                        kind: admissionRequest.kind?.kind,
-                        resource: `${admissionRequest.namespace}/${admissionRequest.name}`,
-                        reason: result.status?.message,
-                    });
+                try {
+                    const result = await validator.review(admissionRequest);
+                    if (!result.allowed) {
+                        logger.info('Rejected an object at admission', {
+                            kind: admissionRequest.kind?.kind,
+                            resource: `${admissionRequest.namespace}/${admissionRequest.name}`,
+                            reason: result.status?.message,
+                        });
+                    }
+                    send(200, toReview(result));
+                } catch (error) {
+                    // A webhook that returns a malformed response makes every
+                    // apply fail with an opaque error. Answer with a well-formed
+                    // denial carrying the uid instead, so the message reaches
+                    // whoever ran kubectl.
+                    logger.error('Admission review failed', { error });
+                    send(
+                        200,
+                        toReview(
+                            deny(
+                                admissionRequest.uid,
+                                'the admission webhook failed to process the request',
+                            ),
+                        ),
+                    );
                 }
-                send(200, toReview(result));
             })
-            .catch((error) => {
-                // A webhook that returns a malformed response makes every apply
-                // fail with an opaque error. Answer with a well-formed denial
-                // instead, so the message reaches whoever ran kubectl.
-                logger.error('Admission review failed', { error });
-                send(
-                    200,
-                    toReview(deny('', 'the admission webhook failed to process the request')),
-                );
+            .catch((error: unknown) => {
+                // The body never arrived intact (oversized, or the socket
+                // failed), so there is no uid to answer with.
+                logger.warn('Could not read an admission request body', { error });
+                send(400, {
+                    message: error instanceof Error ? error.message : 'could not read request body',
+                });
             });
     };
+}
+
+/**
+ * Parses the body as an AdmissionReview envelope, or returns null when it is
+ * not JSON or not an object. `JSON.parse` happily returns `null` or a number,
+ * which would otherwise blow up on the first property access.
+ */
+function parseReview(raw: string): AdmissionReview | null {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (typeof parsed !== 'object' || parsed === null) {
+        return null;
+    }
+    const review = parsed as AdmissionReview;
+    return typeof review.request === 'object' && review.request !== null ? review : null;
 }
 
 /**
