@@ -1,0 +1,28 @@
+name: Feature request
+description: Something the operator should be able to do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that you cannot do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: |
+        If this is a new Hetzner resource or field, a sketch of the YAML you
+        would want to write is the most useful thing you can include.
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you have tried instead
+      description: Workarounds, other tools, or why the existing fields do not cover it.
