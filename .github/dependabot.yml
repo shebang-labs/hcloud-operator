@@ -1,0 +1,57 @@
+# Dependabot is configured to produce a small number of coherent pull requests
+# rather than one per package. Nine separate PRs on day one — several of them
+# breaking, and one that bumped @vitest/coverage-v8 to 5 while leaving vitest at
+# 3, which cannot install — is noise that trains people to ignore the bot.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      # One PR for the whole test and build toolchain, majors included.
+      # Grouping matters here: vitest and @vitest/coverage-v8 have a peer
+      # dependency on each other and must move together or `npm ci` fails.
+      dev-tooling:
+        dependency-type: development
+        patterns: ["*"]
+        update-types: ["major", "minor", "patch"]
+
+      # Runtime dependencies ship inside the image, so they move on their own
+      # and only within a major.
+      runtime:
+        dependency-type: production
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # A major of either runtime dependency changes behaviour the operator
+      # relies on — the Kubernetes client's informer and watch semantics, and
+      # axios' error and redirect handling. Those get a deliberate, tested
+      # upgrade, not an automated PR.
+      - dependency-name: "@kubernetes/client-node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: axios
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    ignore:
+      # The Node major in the Dockerfile is a deliberate choice: it has to stay
+      # in step with the `engines` field, the CI runner's Node version and the
+      # TypeScript target. Bumping it automatically would ship an untested
+      # runtime.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
