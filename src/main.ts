@@ -37,6 +37,9 @@ async function main(): Promise<void> {
     });
 
     const clients = createKubernetesClients(logger);
+    // Aborted when the operator stops, so a reconcile waiting minutes on a
+    // Hetzner action lets go instead of running into the termination grace period.
+    const shutdownSignal = new AbortController();
     const hcloud = createHetznerCloud({
         token: config.hetznerToken,
         baseUrl: config.hetznerApiUrl,
@@ -44,6 +47,7 @@ async function main(): Promise<void> {
         requestsPerHour: config.hetznerRequestsPerHour,
         actionTimeoutMs: config.actionTimeoutMs,
         metrics,
+        signal: shutdownSignal.signal,
     });
 
     metrics.rateLimitRemaining.addSource({}, () => hcloud.rateLimiter.available);
@@ -65,6 +69,7 @@ async function main(): Promise<void> {
         concurrency: config.concurrency,
         retryBaseDelayMs: config.retryBaseDelayMs,
         retryMaxDelayMs: config.retryMaxDelayMs,
+        abortController: shutdownSignal,
     });
 
     const lifecycle = new Lifecycle({ config, logger, operator, clients });

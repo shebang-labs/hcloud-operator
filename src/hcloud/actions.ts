@@ -13,6 +13,10 @@
  * Hetzner is migrating from the global `/actions/{id}` endpoint to per-resource
  * ones (`/servers/actions/{id}`), so the scope is passed in by each resource
  * module and the global path stays as the fallback.
+ *
+ * Waiting is abortable. A resize or rebuild can take minutes; a Pod that keeps
+ * polling through SIGTERM is SIGKILLed at the end of its grace period, and the
+ * next leader would rather pick the work up now than after that.
  */
 
 import { HetznerActionError, HetznerActionTimeoutError, HetznerApiError } from './errors.js';
@@ -32,6 +36,25 @@ export type ActionScope =
     | 'certificates'
     | 'placement_groups';
 
+/**
+ * The wait was abandoned because the operator is shutting down. The action
+ * itself keeps running on Hetzner's side; the next reconcile re-observes it.
+ */
+export class HetznerActionAbortedError extends Error {
+    readonly actionId: number;
+    readonly command: string;
+    readonly retryable = true;
+
+    constructor(actionId: number, command: string) {
+        super(
+            `Stopped waiting for Hetzner action "${command}" (${actionId}) because the operator is shutting down; it may still be running`,
+        );
+        this.name = 'HetznerActionAbortedError';
+        this.actionId = actionId;
+        this.command = command;
+    }
+}
+
 export interface ActionTrackerOptions {
     http: HttpClient;
     /** Total budget before giving up on an action. */
@@ -42,6 +65,8 @@ export interface ActionTrackerOptions {
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
     onSettled?: (command: string, outcome: 'success' | 'error' | 'timeout') => void;
+    /** Aborting it makes every pending wait fail with `HetznerActionAbortedError`. */
+    signal?: AbortSignal;
 }
 
 export interface ActionTracker {
@@ -74,6 +99,29 @@ export function createActionTracker(options: ActionTrackerOptions): ActionTracke
     const maxPollMs = options.maxPollIntervalMs ?? 5_000;
     const now = options.now ?? (() => Date.now());
     const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+    const signal = options.signal;
+
+    /** Sleeps, but returns early when the signal aborts. An injected sleep is wrapped the same way. */
+    function pause(ms: number): Promise<void> {
+        if (!signal) {
+            return sleep(ms);
+        }
+        return new Promise<void>((resolve) => {
+            const onAbort = () => resolve();
+            signal.addEventListener('abort', onAbort, { once: true });
+            const done = () => {
+                signal.removeEventListener('abort', onAbort);
+                resolve();
+            };
+            sleep(ms).then(done, done);
+        });
+    }
+
+    function throwIfAborted(action: Action): void {
+        if (signal?.aborted) {
+            throw new HetznerActionAbortedError(action.id, action.command);
+        }
+    }
 
     async function fetchAction(id: number, scope: ActionScope | undefined): Promise<Action> {
         const paths = scope ? [`/${scope}/actions/${id}`, `/actions/${id}`] : [`/actions/${id}`];
@@ -105,11 +153,14 @@ export function createActionTracker(options: ActionTrackerOptions): ActionTracke
         let pollMs = firstPollMs;
 
         while (!isTerminal(current)) {
+            throwIfAborted(current);
             if (now() >= deadline) {
                 onSettled?.(current.command, 'timeout');
                 throw new HetznerActionTimeoutError(current.id, current.command, timeoutMs);
             }
-            await sleep(pollMs);
+            await pause(pollMs);
+            // Not reported to onSettled: the action did not settle, we left.
+            throwIfAborted(current);
             pollMs = Math.min(maxPollMs, Math.ceil(pollMs * 1.5));
             current = await fetchAction(current.id, scope);
         }

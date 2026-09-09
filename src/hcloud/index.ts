@@ -48,6 +48,8 @@ export interface HetznerCloudOptions {
     requestsPerHour?: number;
     actionTimeoutMs?: number;
     metrics?: OperatorMetrics;
+    /** Aborted on shutdown, so waits on long-running actions give up promptly. */
+    signal?: AbortSignal;
 }
 
 export function createHetznerCloud(options: HetznerCloudOptions): HetznerCloud {
@@ -64,6 +66,7 @@ export function createHetznerCloud(options: HetznerCloudOptions): HetznerCloud {
     const actions = createActionTracker({
         http,
         ...(options.actionTimeoutMs !== undefined ? { timeoutMs: options.actionTimeoutMs } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
         ...(options.metrics
             ? {
                   onSettled: (command, outcome) =>
@@ -111,7 +114,7 @@ export function assembleHetznerCloud(dependencies: {
 }
 
 export type { ActionScope, ActionTracker } from './actions.js';
-export { createActionTracker } from './actions.js';
+export { createActionTracker, HetznerActionAbortedError } from './actions.js';
 export * from './errors.js';
 export type { HttpClient, QueryParams, RequestOptions } from './http.js';
 export { createHetznerHttpClient, routeTemplate, toHetznerApiError } from './http.js';

@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { createActionTracker } from '../../src/hcloud/actions.js';
+import { createActionTracker, HetznerActionAbortedError } from '../../src/hcloud/actions.js';
 import {
     HetznerActionError,
     HetznerActionTimeoutError,
@@ -228,5 +228,83 @@ describe('ActionTracker', () => {
         await tracker.wait(running(1, 'poweron'));
 
         expect(onSettled).toHaveBeenCalledWith('attach_volume', 'success');
+    });
+});
+
+/**
+ * A resize can take minutes. Without an abort, SIGTERM during one means the
+ * Pod sits in its poll loop until the grace period ends and it is SIGKILLed —
+ * and the next leader only learns about the half-finished action from Hetzner.
+ */
+describe('ActionTracker with an abort signal', () => {
+    it('stops waiting as soon as the signal aborts, mid-sleep', async () => {
+        const controller = new AbortController();
+        const { http, requested } = actionServer({ 1: [running()] });
+        const tracker = createActionTracker({
+            http,
+            pollIntervalMs: 60_000,
+            signal: controller.signal,
+            // A sleep that never returns: only the abort can end the wait.
+            sleep: () => new Promise(() => {}),
+        });
+
+        const waiting = tracker.wait(running(1, 'change_type'));
+        controller.abort();
+        const error = await waiting.catch((caught) => caught);
+
+        expect(error).toBeInstanceOf(HetznerActionAbortedError);
+        expect(error.command).toBe('change_type');
+        expect(error.actionId).toBe(1);
+        expect(error.retryable).toBe(true);
+        expect(requested).toHaveLength(0);
+    });
+
+    it('interrupts the default timer-based sleep too', async () => {
+        const controller = new AbortController();
+        const { http } = actionServer({ 1: [running()] });
+        const tracker = createActionTracker({
+            http,
+            pollIntervalMs: 60_000,
+            signal: controller.signal,
+        });
+
+        const waiting = tracker.wait(running());
+        setTimeout(() => controller.abort(), 5);
+
+        await expect(waiting).rejects.toBeInstanceOf(HetznerActionAbortedError);
+    });
+
+    it('refuses to start polling once already aborted', async () => {
+        const controller = new AbortController();
+        controller.abort();
+        const { http, requested } = actionServer({ 1: [running()] });
+        const tracker = createActionTracker({ http, ...instant, signal: controller.signal });
+
+        await expect(tracker.wait(running())).rejects.toBeInstanceOf(HetznerActionAbortedError);
+        expect(requested).toHaveLength(0);
+    });
+
+    it('still passes an already finished action through when aborted', async () => {
+        const controller = new AbortController();
+        controller.abort();
+        const { http } = actionServer({});
+        const tracker = createActionTracker({ http, ...instant, signal: controller.signal });
+
+        await expect(tracker.wait(undefined)).resolves.toBeUndefined();
+        await expect(
+            tracker.wait({ id: 1, command: 'poweron', status: 'success' }),
+        ).resolves.toBeUndefined();
+    });
+
+    it('waits normally while the signal stays quiet', async () => {
+        const controller = new AbortController();
+        const { http, requested } = actionServer({
+            1: [running(), { ...running(), status: 'success' }],
+        });
+        const tracker = createActionTracker({ http, ...instant, signal: controller.signal });
+
+        await tracker.wait(running());
+
+        expect(requested).toHaveLength(2);
     });
 });
