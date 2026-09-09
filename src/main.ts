@@ -80,7 +80,12 @@ async function main(): Promise<void> {
             // Liveness must stay green for a standby replica: a non-leader is
             // healthy, it just has nothing to do yet.
             live: () => !lifecycle.crashed,
-            ready: () => operator.synced,
+            // Readiness must not depend on holding the lease. A Deployment only
+            // retires old Pods once new ones are Ready; if standbys were never
+            // Ready, a rolling update would wait forever for the old leader to
+            // hand over a lease it has no reason to release. A standby is ready
+            // to take over — and to serve the webhook, which needs no lease.
+            ready: () => !lifecycle.isLeader || operator.synced,
         },
         registry: metrics.registry,
         logger,
