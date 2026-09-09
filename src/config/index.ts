@@ -53,7 +53,11 @@ export interface OperatorConfig {
     readonly leaderElectionEnabled: boolean;
     /** Name of the Lease object used for leader election. */
     readonly leaderElectionLeaseName: string;
-    /** Namespace holding the Lease. Defaults to the operator's own namespace. */
+    /**
+     * Namespace holding the Lease: LEADER_ELECTION_NAMESPACE, or the operator's
+     * own namespace from POD_NAMESPACE. Empty only when leader election is
+     * disabled, in which case nothing reads it.
+     */
     readonly leaderElectionNamespace: string;
     /** How long a lease stays valid without a renewal. */
     readonly leaderElectionLeaseDurationMs: number;
@@ -171,8 +175,10 @@ function readList(env: NodeJS.ProcessEnv, name: string): string[] {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OperatorConfig {
     const hetznerToken = env.HETZNER_TOKEN?.trim();
     if (!hetznerToken) {
+        // CI greps the image's output for "HETZNER_TOKEN is not set"; keep it.
         throw new ConfigError(
-            'HETZNER_TOKEN is not set. Provide it from a Kubernetes Secret (see config/secret.example.yaml).',
+            'HETZNER_TOKEN is not set. Provide it from a Kubernetes Secret (the Helm chart does ' +
+                'this from hetzner.token or hetzner.existingSecret).',
         );
     }
 
@@ -181,10 +187,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OperatorConfig
     const webhookEnabled = readBoolean(env, 'WEBHOOK_ENABLED', false);
     const webhookCertFile = env.WEBHOOK_CERT_FILE?.trim() || '/etc/webhook/certs/tls.crt';
     const webhookKeyFile = env.WEBHOOK_KEY_FILE?.trim() || '/etc/webhook/certs/tls.key';
-    if (webhookEnabled && (!webhookCertFile || !webhookKeyFile)) {
+
+    // A Lease has to live somewhere real. A hardcoded fallback namespace would
+    // silently contend for a Lease in a namespace that may not exist or may
+    // belong to another install, and the failure shows up as RBAC errors long
+    // after start-up instead of a clear message now.
+    const leaderElectionEnabled = readBoolean(env, 'LEADER_ELECTION_ENABLED', true);
+    const leaderElectionNamespace =
+        env.LEADER_ELECTION_NAMESPACE?.trim() || env.POD_NAMESPACE?.trim() || '';
+    if (leaderElectionEnabled && !leaderElectionNamespace) {
         throw new ConfigError(
-            'WEBHOOK_ENABLED is true but WEBHOOK_CERT_FILE or WEBHOOK_KEY_FILE is empty. ' +
-                'The API server only calls a webhook over TLS; see config/webhook/.',
+            'LEADER_ELECTION_ENABLED is true but neither LEADER_ELECTION_NAMESPACE nor ' +
+                'POD_NAMESPACE is set, so the operator does not know where to keep its Lease. ' +
+                'The Helm chart sets POD_NAMESPACE automatically; set one of them when running ' +
+                'elsewhere, or set LEADER_ELECTION_ENABLED=false for a single local process.',
         );
     }
 
@@ -214,14 +230,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OperatorConfig
         healthPort: readNumber(env, 'HEALTH_PORT', 8080, { min: 1, max: 65_535 }),
         webhookEnabled,
         webhookPort: readNumber(env, 'WEBHOOK_PORT', 9443, { min: 1, max: 65_535 }),
-        webhookCertFile: webhookCertFile,
-        webhookKeyFile: webhookKeyFile,
-        leaderElectionEnabled: readBoolean(env, 'LEADER_ELECTION_ENABLED', true),
-        leaderElectionLeaseName: env.LEADER_ELECTION_LEASE_NAME?.trim() || 'hetzner-server-controller',
-        leaderElectionNamespace:
-            env.LEADER_ELECTION_NAMESPACE?.trim() ||
-            env.POD_NAMESPACE?.trim() ||
-            'hetzner-server-controller',
+        webhookCertFile,
+        webhookKeyFile,
+        leaderElectionEnabled,
+        leaderElectionLeaseName:
+            env.LEADER_ELECTION_LEASE_NAME?.trim() || 'hetzner-server-controller',
+        leaderElectionNamespace,
         leaderElectionLeaseDurationMs: readNumber(
             env,
             'LEADER_ELECTION_LEASE_DURATION_MS',
