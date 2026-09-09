@@ -195,9 +195,7 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   timeoutSeconds: 5
-  # A standby replica is never ready, and that is correct: it should not
-  # receive webhook traffic until it is the one reconciling.
-  failureThreshold: 60
+  failureThreshold: 3
 
 podAnnotations: {}
 podLabels: {}
