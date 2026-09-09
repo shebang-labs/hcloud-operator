@@ -110,10 +110,42 @@ export function isConditionTrue(
  */
 const MAX_MESSAGE_LENGTH = 2_000;
 
-function truncate(message: string): string {
-    return message.length <= MAX_MESSAGE_LENGTH
-        ? message
-        : `${message.slice(0, MAX_MESSAGE_LENGTH - 3)}...`;
+function truncate(message: string, limit: number = MAX_MESSAGE_LENGTH): string {
+    return message.length <= limit ? message : `${message.slice(0, limit - 3)}...`;
+}
+
+/** Long enough for any real error sentence, short enough for `kubectl describe`. */
+const MAX_SUMMARY_LENGTH = 1_024;
+
+/**
+ * Reduces a caught error to the one line worth putting in a condition or Event.
+ *
+ * A `@kubernetes/client-node` ApiException's message is a multi-line blob:
+ * "HTTP-Code: 409\nMessage: Conflict\nBody: {...}\nHeaders: {...}". Written
+ * verbatim into status it fills `kubectl describe` with response headers, and
+ * the sentence a user actually needs is buried inside the Status body. So only
+ * the first line is kept, with the body's own message appended when there is
+ * one, and the whole thing is capped so one error cannot bloat a status object.
+ */
+export function summarizeError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    const firstLine = message.split(/\r?\n/, 1)[0]?.trim() ?? '';
+    const detail = statusMessageOf(error);
+    const summary = detail && detail !== firstLine ? `${firstLine}: ${detail}` : firstLine;
+    return truncate(summary || 'unknown error', MAX_SUMMARY_LENGTH);
+}
+
+/** The `message` of a Kubernetes Status carried as an ApiException body, if any. */
+function statusMessageOf(error: unknown): string | undefined {
+    if (typeof error !== 'object' || error === null || !('body' in error)) {
+        return undefined;
+    }
+    const body = (error as { body: unknown }).body;
+    if (typeof body !== 'object' || body === null || !('message' in body)) {
+        return undefined;
+    }
+    const message = (body as { message: unknown }).message;
+    return typeof message === 'string' && message.trim() ? message.trim() : undefined;
 }
 
 /** "uniqueness_error" -> "UniquenessError", for use as a condition reason. */

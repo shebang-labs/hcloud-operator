@@ -14,6 +14,7 @@ import {
     isConditionTrue,
     setCondition,
     setConditions,
+    summarizeError,
     toReason,
 } from '../../src/kube/conditions.js';
 
@@ -183,5 +184,61 @@ describe('toReason', () => {
         ['___', 'Error'],
     ])('turns %o into %o', (code, expected) => {
         expect(toReason(code)).toBe(expected);
+    });
+});
+
+describe('summarizeError', () => {
+    it('uses the message of an Error', () => {
+        expect(summarizeError(new Error('server not found'))).toBe('server not found');
+    });
+
+    it('stringifies anything that is not an Error', () => {
+        expect(summarizeError('plain string')).toBe('plain string');
+        expect(summarizeError(42)).toBe('42');
+    });
+
+    it('never returns an empty string, so a condition always says something', () => {
+        expect(summarizeError(new Error(''))).toBe('unknown error');
+        expect(summarizeError(undefined)).toBe('unknown error');
+        expect(summarizeError(null)).toBe('unknown error');
+    });
+
+    it('keeps only the first line of a multi-line message', () => {
+        expect(summarizeError(new Error('first line\nsecond line\nthird'))).toBe('first line');
+        expect(summarizeError(new Error('  padded \r\nnext'))).toBe('padded');
+    });
+
+    it('caps the length, so one error cannot bloat a status object', () => {
+        const summary = summarizeError(new Error('x'.repeat(5_000)));
+
+        expect(summary.length).toBeLessThanOrEqual(1_024);
+        expect(summary.endsWith('...')).toBe(true);
+    });
+
+    it('surfaces the Status message a Kubernetes ApiException buries in its body', () => {
+        // @kubernetes/client-node formats the message as "HTTP-Code: 409\n
+        // Message: Conflict\nBody: {...}\nHeaders: {...}". The first line alone
+        // says almost nothing; the sentence a user needs is inside the body.
+        const body = {
+            kind: 'Status',
+            message:
+                'Operation cannot be fulfilled on hetznerservers: the object has been modified',
+        };
+        const error = Object.assign(
+            new Error(
+                `HTTP-Code: 409\nMessage: Conflict\nBody: ${JSON.stringify(body)}\nHeaders: {"content-type":"application/json"}`,
+            ),
+            { code: 409, body },
+        );
+
+        expect(summarizeError(error)).toBe(
+            'HTTP-Code: 409: Operation cannot be fulfilled on hetznerservers: the object has been modified',
+        );
+    });
+
+    it('ignores a body without a usable message', () => {
+        const error = Object.assign(new Error('HTTP-Code: 500\nBody: "oops"'), { body: 'oops' });
+
+        expect(summarizeError(error)).toBe('HTTP-Code: 500');
     });
 });

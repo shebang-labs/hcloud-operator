@@ -42,6 +42,7 @@ import {
     type Phase,
     type ResourceStore,
     setConditions,
+    summarizeError,
     toReason,
 } from '../kube/index.js';
 import type { Logger } from '../observability/logger.js';
@@ -658,7 +659,9 @@ export class ReconcileEngine<
      * caller, and losing the status write must not lose the error.
      */
     async recordFailure(namespace: string, name: string, error: unknown): Promise<void> {
-        const message = error instanceof Error ? error.message : String(error);
+        // Kubernetes ApiException messages are multi-line blobs (HTTP code, body,
+        // headers); status.message and Events get the one line that matters.
+        const message = summarizeError(error);
         const reason =
             error instanceof HetznerApiError
                 ? toReason(error.code)
