@@ -1,0 +1,40 @@
+{{- if .Values.webhook.enabled }}
+{{- if .Values.webhook.certManager.createIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "hcloud-operator.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hcloud-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+{{- end }}
+# The webhook's serving certificate. cert-manager issues and rotates it, and
+# copies the CA into the ValidatingWebhookConfiguration below.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "hcloud-operator.webhookCertificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hcloud-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "hcloud-operator.webhookSecretName" . }}
+  duration: {{ .Values.webhook.certManager.duration }}
+  renewBefore: {{ .Values.webhook.certManager.renewBefore }}
+  dnsNames:
+    - {{ include "hcloud-operator.webhookServiceName" . }}
+    - {{ include "hcloud-operator.webhookServiceName" . }}.{{ .Release.Namespace }}
+    - {{ include "hcloud-operator.webhookServiceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "hcloud-operator.webhookServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    {{- if .Values.webhook.certManager.createIssuer }}
+    name: {{ include "hcloud-operator.fullname" . }}-selfsigned
+    kind: Issuer
+    {{- else }}
+    {{- required "webhook.certManager.issuerRef.name is required when createIssuer is false" .Values.webhook.certManager.issuerRef.name | printf "name: %s" | nindent 4 }}
+    kind: {{ default "Issuer" .Values.webhook.certManager.issuerRef.kind }}
+    {{- end }}
+{{- end }}

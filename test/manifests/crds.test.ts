@@ -50,7 +50,7 @@ interface SchemaNode {
     minimum?: number;
 }
 
-const CRD_DIR = join(process.cwd(), 'charts', 'hetzner-server-controller', 'crds');
+const CRD_DIR = join(process.cwd(), 'charts', 'hcloud-operator', 'crds');
 
 const crdFiles = readdirSync(CRD_DIR).filter((file) => file.endsWith('.yaml'));
 

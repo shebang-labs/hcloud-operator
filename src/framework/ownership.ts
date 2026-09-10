@@ -4,7 +4,7 @@
  *
  * Every resource the operator creates carries labels pointing at its owner:
  *
- *   hcloud.shebanglabs.io/managed-by = hetzner-server-controller
+ *   hcloud.shebanglabs.io/managed-by = hcloud-operator
  *   hcloud.shebanglabs.io/uid        = metadata.uid   <- the stable primary key
  *   hcloud.shebanglabs.io/namespace  = metadata.namespace
  *   hcloud.shebanglabs.io/name       = metadata.name

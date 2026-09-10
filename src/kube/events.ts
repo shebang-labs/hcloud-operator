@@ -46,7 +46,7 @@ export interface EventRecorderOptions {
 
 export function createEventRecorder(options: EventRecorderOptions): EventRecorder {
     const { core, logger } = options;
-    const component = options.component ?? 'hetzner-server-controller';
+    const component = options.component ?? 'hcloud-operator';
     const now = options.now ?? (() => Date.now());
     const recentlySent = new Map<string, number>();
 

@@ -188,7 +188,7 @@ export function createHetznerHttpClient(options: HetznerHttpClientOptions): Http
         headers: {
             Authorization: `Bearer ${options.token}`,
             'Content-Type': 'application/json',
-            'User-Agent': options.userAgent ?? 'hetzner-server-controller',
+            'User-Agent': options.userAgent ?? 'hcloud-operator',
         },
         // Hetzner returns arrays as repeated keys, which is axios' default.
         // Being explicit keeps a future axios default change from breaking us.

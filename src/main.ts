@@ -26,7 +26,7 @@ import { buildKinds } from './resources/index.js';
 
 async function main(): Promise<void> {
     const config = loadConfig();
-    const logger = createLogger(config.logLevel, { component: 'hetzner-server-controller' });
+    const logger = createLogger(config.logLevel, { component: 'hcloud-operator' });
     const metrics = createMetrics();
 
     logger.info('Operator starting', {

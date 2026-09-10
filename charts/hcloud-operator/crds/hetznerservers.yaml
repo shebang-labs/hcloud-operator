@@ -1,0 +1,424 @@
+# Kind: HetznerServer  (hcloud.shebanglabs.io/v1alpha1)
+#
+# This file is the source of truth for the API contract. The TypeScript types
+# in src/resources/ mirror it, and test/manifests/ checks that they agree.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hetznerservers.hcloud.shebanglabs.io
+  labels:
+    app.kubernetes.io/name: hcloud-operator
+spec:
+  group: hcloud.shebanglabs.io
+  scope: Namespaced
+  names:
+    kind: HetznerServer
+    listKind: HetznerServerList
+    plural: hetznerservers
+    singular: hetznerserver
+    shortNames:
+      - hsrv
+    categories:
+      - hcloud
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.serverStatus
+        - name: Type
+          type: string
+          jsonPath: .status.serverType
+        - name: IPv4
+          type: string
+          jsonPath: .status.ipv4
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: ID
+          type: integer
+          jsonPath: .status.id
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+        - name: Message
+          type: string
+          jsonPath: .status.message
+          priority: 1
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            A Hetzner Cloud server, managed declaratively: power state, size, image, networks,
+            rescue mode and backups all converge to the spec.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - serverType
+                - image
+              properties:
+                serverType:
+                  type: string
+                  description: >-
+                    Hetzner server type, e.g. "cpx21". Changing it resizes the server and requires
+                    allowDowntime.
+                image:
+                  type: string
+                  description: >-
+                    Image name or id, e.g. "ubuntu-24.04". Changing it rebuilds the server and
+                    requires allowDataLoss.
+                location:
+                  type: string
+                  description: Hetzner location, e.g. "nbg1". Immutable. Mutually exclusive with datacenter.
+                datacenter:
+                  type: string
+                  description: >-
+                    Hetzner datacenter, e.g. "nbg1-dc3". Immutable. Mutually exclusive with
+                    location.
+                sshKeyRefs:
+                  type: array
+                  description: SSH keys to install at first boot. Only applied at create time.
+                  items:
+                    type: object
+                    description: ' Set exactly one of name, hetznerName or id.'
+                    properties:
+                      name:
+                        type: string
+                        description: Name of a custom resource of the target kind.
+                      namespace:
+                        type: string
+                        description: Namespace of that custom resource. Defaults to this object's namespace.
+                      hetznerName:
+                        type: string
+                        description: Name of an unmanaged resource that already exists in the Hetzner project.
+                      id:
+                        type: integer
+                        description: Raw Hetzner id.
+                    oneOf:
+                      - required:
+                          - name
+                      - required:
+                          - hetznerName
+                      - required:
+                          - id
+                userData:
+                  type: string
+                  description: Cloud-init user data applied at first boot. Immutable.
+                publicNet:
+                  type: object
+                  description: Public IP configuration. Immutable after create.
+                  properties:
+                    enableIPv4:
+                      type: boolean
+                    enableIPv6:
+                      type: boolean
+                networks:
+                  type: array
+                  description: Private networks this server joins.
+                  items:
+                    type: object
+                    required:
+                      - networkRef
+                    properties:
+                      networkRef:
+                        type: object
+                        description: >-
+                          The private network to attach to. Set exactly one of name, hetznerName or
+                          id.
+                        properties:
+                          name:
+                            type: string
+                            description: Name of a custom resource of the target kind.
+                          namespace:
+                            type: string
+                            description: >-
+                              Namespace of that custom resource. Defaults to this object's
+                              namespace.
+                          hetznerName:
+                            type: string
+                            description: >-
+                              Name of an unmanaged resource that already exists in the Hetzner
+                              project.
+                          id:
+                            type: integer
+                            description: Raw Hetzner id.
+                        oneOf:
+                          - required:
+                              - name
+                          - required:
+                              - hetznerName
+                          - required:
+                              - id
+                      ip:
+                        type: string
+                        description: Fixed private IP. Hetzner picks one when omitted.
+                      aliasIps:
+                        type: array
+                        items:
+                          type: string
+                        description: Extra IPs this server answers for, for keepalived-style failover.
+                placementGroupRef:
+                  type: object
+                  description: >-
+                    Placement group membership. Changing it requires the server to be powered off.
+                    Set exactly one of name, hetznerName or id.
+                  properties:
+                    name:
+                      type: string
+                      description: Name of a custom resource of the target kind.
+                    namespace:
+                      type: string
+                      description: Namespace of that custom resource. Defaults to this object's namespace.
+                    hetznerName:
+                      type: string
+                      description: Name of an unmanaged resource that already exists in the Hetzner project.
+                    id:
+                      type: integer
+                      description: Raw Hetzner id.
+                  oneOf:
+                    - required:
+                        - name
+                    - required:
+                        - hetznerName
+                    - required:
+                        - id
+                powerState:
+                  type: string
+                  enum:
+                    - Running
+                    - Stopped
+                  default: Running
+                  description: >-
+                    Desired power state. Stopped asks the guest to shut down cleanly and only cuts
+                    the power once gracefulShutdownTimeoutSeconds has passed.
+                gracefulShutdownTimeoutSeconds:
+                  type: integer
+                  minimum: 0
+                  default: 120
+                  description: How long to wait for a clean ACPI shutdown before cutting the power.
+                backups:
+                  type: boolean
+                  description: Enable Hetzner's daily backups. Adds 20% to the server price.
+                rescue:
+                  type: object
+                  required:
+                    - enabled
+                  description: >-
+                    Hetzner rescue system. Takes effect on the next boot; the operator does not
+                    reboot the server for you.
+                  properties:
+                    enabled:
+                      type: boolean
+                    type:
+                      type: string
+                      enum:
+                        - linux64
+                        - linux32
+                      default: linux64
+                    sshKeyRefs:
+                      type: array
+                      description: SSH keys authorised in the rescue system.
+                      items:
+                        type: object
+                        description: ' Set exactly one of name, hetznerName or id.'
+                        properties:
+                          name:
+                            type: string
+                            description: Name of a custom resource of the target kind.
+                          namespace:
+                            type: string
+                            description: >-
+                              Namespace of that custom resource. Defaults to this object's
+                              namespace.
+                          hetznerName:
+                            type: string
+                            description: >-
+                              Name of an unmanaged resource that already exists in the Hetzner
+                              project.
+                          id:
+                            type: integer
+                            description: Raw Hetzner id.
+                        oneOf:
+                          - required:
+                              - name
+                          - required:
+                              - hetznerName
+                          - required:
+                              - id
+                iso:
+                  type: string
+                  description: ISO to keep attached, by name. Null or omitted means none.
+                  nullable: true
+                dnsPtr:
+                  type: array
+                  description: Reverse DNS entries to publish for this resource's addresses.
+                  items:
+                    type: object
+                    required:
+                      - ip
+                      - dnsPtr
+                    properties:
+                      ip:
+                        type: string
+                      dnsPtr:
+                        type: string
+                        description: Hostname to publish, or null to clear the entry.
+                        nullable: true
+                protection:
+                  type: object
+                  description: Hetzner protection flags.
+                  properties:
+                    delete:
+                      type: boolean
+                      description: Refuse deletion until this is turned off.
+                    rebuild:
+                      type: boolean
+                      description: Refuse rebuild until this is turned off.
+                allowDowntime:
+                  type: boolean
+                  description: >-
+                    Required before the operator will resize the server, which powers it off and
+                    back on.
+                allowDataLoss:
+                  type: boolean
+                  description: Required before the operator will rebuild the server. A rebuild erases the disk.
+                upgradeDisk:
+                  type: boolean
+                  description: >-
+                    Grow the disk during a resize. Hetzner cannot downgrade a server whose disk was
+                    enlarged, so this makes the resize one-way.
+                adoptExisting:
+                  type: string
+                  description: >-
+                    Take over a resource that already exists in the Hetzner project instead of
+                    creating one. Accepts a Hetzner name or a numeric id.
+                deletionPolicy:
+                  type: string
+                  enum:
+                    - Delete
+                    - Orphan
+                  default: Delete
+                  description: >-
+                    Delete removes the Hetzner resource with the Kubernetes object. Orphan leaves it
+                    running and only drops the finalizer.
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: >-
+                    Labels to set on the Hetzner resource, on top of the ownership labels the
+                    operator manages.
+            status:
+              type: object
+              properties:
+                serverStatus:
+                  type: string
+                  description: 'Hetzner''s own status: running, off, starting, initializing, ...'
+                serverType:
+                  type: string
+                image:
+                  type: string
+                location:
+                  type: string
+                datacenter:
+                  type: string
+                ipv4:
+                  type: string
+                ipv6:
+                  type: string
+                privateIps:
+                  type: array
+                  items:
+                    type: string
+                networkIds:
+                  type: array
+                  items:
+                    type: integer
+                volumeIds:
+                  type: array
+                  items:
+                    type: integer
+                placementGroupId:
+                  type: integer
+                rescueEnabled:
+                  type: boolean
+                backupsEnabled:
+                  type: boolean
+                iso:
+                  type: string
+                locked:
+                  type: boolean
+                pendingOperation:
+                  type: string
+                  enum:
+                    - Resizing
+                  description: Set while the operator is part-way through a multi-step operation.
+                  nullable: true
+                shutdownRequestedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Creating
+                    - Ready
+                    - Updating
+                    - Deleting
+                    - Error
+                id:
+                  type: integer
+                  description: Hetzner numeric id. The link between Kubernetes and Hetzner.
+                hetznerName:
+                  type: string
+                  description: Name the resource has inside the Hetzner project.
+                message:
+                  type: string
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - message
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - 'True'
+                          - 'False'
+                          - Unknown
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer

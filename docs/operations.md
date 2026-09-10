@@ -15,9 +15,9 @@ Status:
   Phase:        Ready
 Events:
   Type     Reason         Age    From                       Message
-  Normal   Created        4m12s  hetzner-server-controller  Created Hetzner HetznerServer 4711 (demo-web-01)
-  Normal   Updated        3m58s  hetzner-server-controller  enabled daily backups
-  Warning  GuardRequired  22s    hetzner-server-controller  spec.serverType is "cpx31" but the server runs "cpx21". Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.
+  Normal   Created        4m12s  hcloud-operator  Created Hetzner HetznerServer 4711 (demo-web-01)
+  Normal   Updated        3m58s  hcloud-operator  enabled daily backups
+  Warning  GuardRequired  22s    hcloud-operator  spec.serverType is "cpx31" but the server runs "cpx21". Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.
 ```
 
 | Condition           | Meaning                                                                 |
@@ -71,7 +71,7 @@ One JSON object per line. `controller.logLevel` (`debug`, `info`, `warn`,
 keys are never logged.
 
 ```bash
-kubectl -n hetzner-server-controller logs deploy/hetzner-server-controller -f | jq -c 'select(.level != "debug")'
+kubectl -n hcloud-operator logs deploy/hcloud-operator -f | jq -c 'select(.level != "debug")'
 ```
 
 ## Replicas and leader election
@@ -108,22 +108,22 @@ to give teams separate Hetzner projects.
 
 ```bash
 helm repo update
-helm upgrade hetzner-server-controller shebanglabs/hetzner-server-controller -n hetzner-server-controller
+helm upgrade hcloud-operator shebanglabs/hcloud-operator -n hcloud-operator
 ```
 
 Helm installs CRDs but never upgrades them. When a release changes a CRD (the
 changelog says so), apply them first:
 
 ```bash
-kubectl apply --server-side -f https://github.com/shebang-labs/hetzner-server-controller/releases/download/v1.0.0/crds.yaml
+kubectl apply --server-side -f https://github.com/shebang-labs/hcloud-operator/releases/download/v1.0.0/crds.yaml
 ```
 
-or, from a checkout, `kubectl apply --server-side -f charts/hetzner-server-controller/crds/`.
+or, from a checkout, `kubectl apply --server-side -f charts/hcloud-operator/crds/`.
 
 ## Uninstalling
 
 ```bash
-helm uninstall hetzner-server-controller -n hetzner-server-controller
+helm uninstall hcloud-operator -n hcloud-operator
 ```
 
 This removes the controller. It does **not** remove the CRDs or your
@@ -160,7 +160,7 @@ binary directly.
 | `HEALTH_PORT` | `8080` | `/healthz`, `/readyz`, `/metrics` |
 | `LEADER_ELECTION_ENABLED` | `true` | Turn off only for a single replica |
 | `LEADER_ELECTION_NAMESPACE` | `$POD_NAMESPACE` | Where the Lease lives |
-| `LEADER_ELECTION_LEASE_NAME` | `hetzner-server-controller` | |
+| `LEADER_ELECTION_LEASE_NAME` | `hcloud-operator` | |
 | `LEADER_ELECTION_LEASE_DURATION_MS` | `15000` | |
 | `LEADER_ELECTION_IDENTITY` | `$POD_NAME` | |
 | `WEBHOOK_ENABLED` | `false` | Serve the validating webhook |

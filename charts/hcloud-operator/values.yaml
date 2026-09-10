@@ -1,0 +1,217 @@
+# Default values for hcloud-operator.
+#
+# The only thing you must provide is a Hetzner Cloud API token, either inline
+# (hetzner.token) or as a reference to a Secret you manage yourself
+# (hetzner.existingSecret). Everything else has a sensible default.
+
+hetzner:
+  # -- Hetzner Cloud API token with Read & Write permission. Create it in the
+  # Hetzner Cloud Console under Security -> API tokens. The chart stores it in a
+  # Secret. One token means one Hetzner project; run one release per project.
+  token: ""
+  # -- Name of an existing Secret holding the token, if you prefer to manage it
+  # yourself (for example with External Secrets or Sealed Secrets). Takes
+  # precedence over `hetzner.token`.
+  existingSecret: ""
+  # -- Key inside `hetzner.existingSecret` that holds the token.
+  existingSecretKey: token
+  # -- Base URL of the Hetzner Cloud API. Only change this for a local
+  # record/replay proxy; anything other than https is refused at startup.
+  apiUrl: https://api.hetzner.cloud/v1
+  # -- Per-request timeout against the Hetzner API, in milliseconds.
+  timeoutMs: 30000
+  # -- Self-imposed request budget per hour. Hetzner allows 3600 per project;
+  # staying under it keeps the controller from starving other users of the
+  # same token.
+  requestsPerHour: 3000
+  # -- How long to wait for an asynchronous Hetzner action (a server create,
+  # a resize) to finish before giving up, in milliseconds.
+  actionTimeoutMs: 600000
+
+controller:
+  # -- Confine the controller to a single namespace. Empty watches every
+  # namespace. When set, the chart creates a namespaced Role instead of a
+  # ClusterRole.
+  watchNamespace: ""
+  # -- Reconcile only these kinds, e.g. `[HetznerServer, HetznerVolume]`.
+  # Empty means every kind the controller knows.
+  enabledKinds: []
+  # -- How often every resource is re-checked for drift, in milliseconds.
+  resyncPeriodMs: 300000
+  # -- Parallel reconciles per kind.
+  concurrency: 2
+  # -- First retry delay after a failed reconcile, in milliseconds. Doubles
+  # with jitter up to `retryMaxDelayMs`.
+  retryBaseDelayMs: 2000
+  # -- Backoff ceiling, in milliseconds.
+  retryMaxDelayMs: 300000
+  # -- Log level: debug, info, warn or error. Logs are JSON, one object per line.
+  logLevel: info
+
+# -- Number of controller Pods. Two is safe: leader election ensures only one
+# reconciles, and the standby takes over within the lease duration.
+replicaCount: 2
+
+leaderElection:
+  # -- Contend for a coordination.k8s.io Lease before reconciling. Only turn
+  # this off with `replicaCount: 1`.
+  enabled: true
+  # -- How long a lease stays valid without a renewal, in milliseconds.
+  leaseDurationMs: 15000
+
+image:
+  repository: shebanglabs/hcloud-operator
+  # -- Image tag. Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+  # -- Pull by digest instead of tag when set, e.g. `sha256:abc...`.
+  digest: ""
+
+# -- Pull secrets for a private mirror of the image.
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  # -- Name of the ServiceAccount. Generated from the release name when empty.
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+rbac:
+  # -- Create the ClusterRole/Role and bindings the controller needs.
+  create: true
+  # -- Grant `get` on Secrets. Needed only for `HetznerCertificate` with
+  # `type: uploaded`, which reads PEM material from a Secret. This is the
+  # broadest permission the controller holds; turn it off if you do not use
+  # uploaded certificates.
+  secretsAccess: true
+
+webhook:
+  # -- Serve a validating admission webhook that rejects an invalid spec at
+  # `kubectl apply` time, with the valid alternatives in the error message.
+  # Requires cert-manager. Without it the same problem is reported on the
+  # object's `Synced` condition a few seconds later.
+  enabled: false
+  port: 9443
+  # -- What the API server does when the webhook is unreachable. `Fail` is the
+  # safe default: an unchecked spec would create real, billable infrastructure.
+  # Uninstall order matters, see docs/webhook.md.
+  failurePolicy: Fail
+  timeoutSeconds: 5
+  certManager:
+    # -- Create a self-signed Issuer for the webhook certificate. Set to false
+    # and fill `issuerRef` to use your own.
+    createIssuer: true
+    # -- Reference to an existing cert-manager Issuer or ClusterIssuer.
+    issuerRef: {}
+    #  name: my-issuer
+    #  kind: ClusterIssuer
+    # -- Certificate validity.
+    duration: 2160h
+    renewBefore: 360h
+
+metrics:
+  # -- Expose Prometheus metrics on the health port via a Service.
+  enabled: true
+  port: 8080
+  service:
+    type: ClusterIP
+    annotations: {}
+  serviceMonitor:
+    # -- Create a prometheus-operator ServiceMonitor.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    metricRelabelings: []
+    relabelings: []
+
+podDisruptionBudget:
+  # -- Keep one controller Pod available during node drains.
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  # -- Restrict the controller Pods to the API server, DNS, the Hetzner API
+  # and incoming metrics/webhook traffic.
+  enabled: false
+  # -- Extra egress rules, appended to the defaults.
+  extraEgress: []
+  # -- Extra ingress rules, appended to the defaults.
+  extraIngress: []
+
+# -- Additional environment variables for the controller container.
+extraEnv: []
+#  - name: LEADER_ELECTION_LEASE_NAME
+#    value: my-lease
+
+# -- Additional volumes and volume mounts.
+extraVolumes: []
+extraVolumeMounts: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    # No CPU limit on purpose: throttling a reconcile loop turns a busy resync
+    # into timeouts against the Hetzner API.
+    memory: 512Mi
+
+# -- Time for in-flight reconciles to finish before SIGKILL. A Hetzner action
+# takes seconds, not minutes.
+terminationGracePeriodSeconds: 60
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# -- Spread the replicas across nodes so one node failure cannot take both.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: '{{ include "hcloud-operator.name" . }}'
+        app.kubernetes.io/instance: "{{ .Release.Name }}"
+
+# -- Extra labels added to every object the chart creates.
+commonLabels: {}

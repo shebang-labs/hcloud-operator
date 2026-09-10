@@ -68,7 +68,7 @@ describe('createEventRecorder', () => {
                 reason: 'Created',
                 message: 'Created Hetzner server 4711',
                 involvedObject: { uid: 'uid-1', name: 'web-01', kind: 'HetznerServer' },
-                source: { component: 'hetzner-server-controller' },
+                source: { component: 'hcloud-operator' },
             },
         });
     });

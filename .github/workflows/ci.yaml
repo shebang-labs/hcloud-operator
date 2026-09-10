@@ -11,8 +11,8 @@ on:
     branches: [main]
 
 env:
-  IMAGE: shebanglabs/hetzner-server-controller
-  CHART: charts/hetzner-server-controller
+  IMAGE: shebanglabs/hcloud-operator
+  CHART: charts/hcloud-operator
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -158,15 +158,15 @@ jobs:
         # A placeholder token: the controller starts, syncs its informers and
         # becomes Ready without ever calling Hetzner, because no resource exists.
         run: |
-          kubectl create namespace hetzner-server-controller
-          helm install hsc "$CHART" -n hetzner-server-controller \
+          kubectl create namespace hcloud-operator
+          helm install hsc "$CHART" -n hcloud-operator \
             --set hetzner.token=ci-placeholder \
             --set image.tag=ci --set image.pullPolicy=Never \
             --wait --timeout 3m
-          kubectl -n hetzner-server-controller get pods -o wide
+          kubectl -n hcloud-operator get pods -o wide
 
       - name: helm test
-        run: helm test hsc -n hetzner-server-controller --logs
+        run: helm test hsc -n hcloud-operator --logs
 
       - name: Every example passes the API server's own validation
         run: |
@@ -175,23 +175,23 @@ jobs:
 
       - name: Upgrade to a user-managed Secret and a single namespace
         run: |
-          kubectl -n hetzner-server-controller create secret generic my-token --from-literal=token=ci-placeholder
-          helm upgrade hsc "$CHART" -n hetzner-server-controller \
+          kubectl -n hcloud-operator create secret generic my-token --from-literal=token=ci-placeholder
+          helm upgrade hsc "$CHART" -n hcloud-operator \
             --set hetzner.existingSecret=my-token \
             --set controller.watchNamespace=demo \
             --set image.tag=ci --set image.pullPolicy=Never \
             --wait --timeout 3m
-          kubectl get clusterrole hsc-hetzner-server-controller 2>/dev/null && exit 1 || echo "ClusterRole gone, Role in place"
-          kubectl -n demo get role hsc-hetzner-server-controller
+          kubectl get clusterrole hsc-hcloud-operator 2>/dev/null && exit 1 || echo "ClusterRole gone, Role in place"
+          kubectl -n demo get role hsc-hcloud-operator
 
       - name: Uninstall leaves the CRDs and the user's objects
         run: |
-          helm uninstall hsc -n hetzner-server-controller --wait
+          helm uninstall hsc -n hcloud-operator --wait
           kubectl get crd hetznerservers.hcloud.shebanglabs.io
 
       - name: Controller logs
         if: always()
-        run: kubectl -n hetzner-server-controller logs -l app.kubernetes.io/name=hetzner-server-controller --tail=200 || true
+        run: kubectl -n hcloud-operator logs -l app.kubernetes.io/name=hcloud-operator --tail=200 || true
 
   publish-dev:
     name: Publish :dev

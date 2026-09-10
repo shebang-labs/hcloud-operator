@@ -1,9 +1,9 @@
-# hetzner-server-controller
+# hcloud-operator
 
-[![CI](https://github.com/shebang-labs/hetzner-server-controller/actions/workflows/ci.yaml/badge.svg)](https://github.com/shebang-labs/hetzner-server-controller/actions/workflows/ci.yaml)
-[![Release](https://img.shields.io/github/v/release/shebang-labs/hetzner-server-controller?sort=semver)](https://github.com/shebang-labs/hetzner-server-controller/releases)
-[![Docker pulls](https://img.shields.io/docker/pulls/shebanglabs/hetzner-server-controller)](https://hub.docker.com/r/shebanglabs/hetzner-server-controller)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/hetzner-server-controller)](https://artifacthub.io/packages/search?repo=hetzner-server-controller)
+[![CI](https://github.com/shebang-labs/hcloud-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/shebang-labs/hcloud-operator/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/shebang-labs/hcloud-operator?sort=semver)](https://github.com/shebang-labs/hcloud-operator/releases)
+[![Docker pulls](https://img.shields.io/docker/pulls/shebanglabs/hcloud-operator)](https://hub.docker.com/r/shebanglabs/hcloud-operator)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/hcloud-operator)](https://artifacthub.io/packages/search?repo=hcloud-operator)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Kubernetes operator that manages a whole [Hetzner Cloud](https://www.hetzner.com/cloud)
@@ -37,18 +37,18 @@ Cloud Console → your project → **Security → API tokens**). That is the onl
 required input.
 
 ```bash
-helm repo add shebanglabs https://shebang-labs.github.io/hetzner-server-controller
-helm install hetzner-server-controller shebanglabs/hetzner-server-controller \
-  --namespace hetzner-server-controller --create-namespace \
+helm repo add shebanglabs https://shebang-labs.github.io/hcloud-operator
+helm install hcloud-operator shebanglabs/hcloud-operator \
+  --namespace hcloud-operator --create-namespace \
   --set hetzner.token=<your token>
 ```
 
 The same chart is also published as an OCI artifact on GHCR:
 
 ```bash
-helm install hetzner-server-controller \
-  oci://ghcr.io/shebang-labs/charts/hetzner-server-controller --version 1.0.0 \
-  --namespace hetzner-server-controller --create-namespace \
+helm install hcloud-operator \
+  oci://ghcr.io/shebang-labs/charts/hcloud-operator --version 1.0.0 \
+  --namespace hcloud-operator --create-namespace \
   --set hetzner.token=<your token>
 ```
 
@@ -56,9 +56,9 @@ Prefer to manage the Secret yourself (External Secrets, Sealed Secrets, SOPS)?
 Point the chart at it instead:
 
 ```bash
-kubectl -n hetzner-server-controller create secret generic hcloud --from-literal=token=<your token>
-helm install hetzner-server-controller shebanglabs/hetzner-server-controller \
-  --namespace hetzner-server-controller \
+kubectl -n hcloud-operator create secret generic hcloud --from-literal=token=<your token>
+helm install hcloud-operator shebanglabs/hcloud-operator \
+  --namespace hcloud-operator \
   --set hetzner.existingSecret=hcloud
 ```
 
@@ -67,7 +67,7 @@ firewall, a certificate, a load balancer and a floating IP, applied in one go
 and in any order:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/shebang-labs/hetzner-server-controller/main/examples/stack/00-namespace.yaml
+kubectl apply -f https://raw.githubusercontent.com/shebang-labs/hcloud-operator/main/examples/stack/00-namespace.yaml
 kubectl apply -f examples/stack/
 kubectl -n demo get hsrv,hvol,hnet,hfw,hlb
 ```
@@ -79,13 +79,13 @@ kubectl -n demo get hsrv,hvol,hnet,hfw,hlb
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: hetzner-server-controller
+  name: hcloud-operator
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://shebang-labs.github.io/hetzner-server-controller
-    chart: hetzner-server-controller
+    repoURL: https://shebang-labs.github.io/hcloud-operator
+    chart: hcloud-operator
     targetRevision: 1.0.0
     helm:
       valuesObject:
@@ -93,7 +93,7 @@ spec:
           existingSecret: hcloud
   destination:
     server: https://kubernetes.default.svc
-    namespace: hetzner-server-controller
+    namespace: hcloud-operator
   syncPolicy:
     syncOptions: [CreateNamespace=true, ServerSideApply=true]
 ```
@@ -110,18 +110,18 @@ metadata:
   namespace: flux-system
 spec:
   interval: 1h
-  url: https://shebang-labs.github.io/hetzner-server-controller
+  url: https://shebang-labs.github.io/hcloud-operator
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: hetzner-server-controller
-  namespace: hetzner-server-controller
+  name: hcloud-operator
+  namespace: hcloud-operator
 spec:
   interval: 30m
   chart:
     spec:
-      chart: hetzner-server-controller
+      chart: hcloud-operator
       version: 1.x
       sourceRef:
         kind: HelmRepository
@@ -136,11 +136,11 @@ spec:
 One token means one Hetzner project. To manage several projects, install the
 chart once per project, each in its own namespace with `controller.watchNamespace`
 set. Every chart option is documented in
-[`charts/hetzner-server-controller/README.md`](charts/hetzner-server-controller/README.md).
+[`charts/hcloud-operator/README.md`](charts/hcloud-operator/README.md).
 
 Images are multi-arch (`linux/amd64`, `linux/arm64`), signed with cosign and
 published to Docker Hub as
-[`shebanglabs/hetzner-server-controller`](https://hub.docker.com/r/shebanglabs/hetzner-server-controller).
+[`shebanglabs/hcloud-operator`](https://hub.docker.com/r/shebanglabs/hcloud-operator).
 Tags: `1.2.3` (a release), `latest` (the newest release), `dev` (tip of `main`),
 `<commit-sha>` (every build, immutable).
 

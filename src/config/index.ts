@@ -233,8 +233,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OperatorConfig
         webhookCertFile,
         webhookKeyFile,
         leaderElectionEnabled,
-        leaderElectionLeaseName:
-            env.LEADER_ELECTION_LEASE_NAME?.trim() || 'hetzner-server-controller',
+        leaderElectionLeaseName: env.LEADER_ELECTION_LEASE_NAME?.trim() || 'hcloud-operator',
         leaderElectionNamespace,
         leaderElectionLeaseDurationMs: readNumber(
             env,

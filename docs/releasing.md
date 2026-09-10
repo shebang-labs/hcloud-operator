@@ -7,8 +7,8 @@ A release is a version tag. Everything else is automation.
 ```bash
 # 1. One commit: version in package.json and the chart, changelog section.
 npm version 1.1.0 --no-git-tag-version
-sed -i 's/^version: .*/version: 1.1.0/; s/^appVersion: .*/appVersion: "1.1.0"/' charts/hetzner-server-controller/Chart.yaml
-sed -i 's|hetzner-server-controller:[0-9.]*$|hetzner-server-controller:1.1.0|' charts/hetzner-server-controller/Chart.yaml
+sed -i 's/^version: .*/version: 1.1.0/; s/^appVersion: .*/appVersion: "1.1.0"/' charts/hcloud-operator/Chart.yaml
+sed -i 's|hcloud-operator:[0-9.]*$|hcloud-operator:1.1.0|' charts/hcloud-operator/Chart.yaml
 $EDITOR CHANGELOG.md        # move [Unreleased] into ## [1.1.0] — YYYY-MM-DD
 npm run verify              # a test fails if any of the above disagree
 git commit -am "release: 1.1.0"
@@ -22,14 +22,14 @@ The `Release` workflow then:
 
 1. Refuses to continue unless the tag, `package.json`, `Chart.yaml` `version`
    and `appVersion`, and a `CHANGELOG.md` section all agree.
-2. Builds and pushes `docker.io/shebanglabs/hetzner-server-controller:1.1.0`,
+2. Builds and pushes `docker.io/shebanglabs/hcloud-operator:1.1.0`,
    `:latest` (not for pre-releases such as `1.1.0-rc.1`) and `:<sha>` for
    `linux/amd64` and `linux/arm64`, with SLSA provenance and an SBOM, and signs
    the digest with cosign (keyless, using the workflow's OIDC identity).
 3. Packages the chart, creates the GitHub Release `v1.1.0` with the changelog
    section as notes and the chart archive attached, updates `index.yaml` on the
    `gh-pages` branch (the Helm repository), and pushes the chart to
-   `oci://ghcr.io/shebang-labs/charts/hetzner-server-controller` (GHCR rather
+   `oci://ghcr.io/shebang-labs/charts/hcloud-operator` (GHCR rather
    than Docker Hub because an OCI chart is stored under its chart name, which
    would collide with the image's tags; the package must be made public once
    in the GitHub UI).
@@ -38,10 +38,10 @@ The `Release` workflow then:
 Verify:
 
 ```bash
-cosign verify docker.io/shebanglabs/hetzner-server-controller:1.1.0 \
-  --certificate-identity-regexp 'https://github.com/shebang-labs/hetzner-server-controller/' \
+cosign verify docker.io/shebanglabs/hcloud-operator:1.1.0 \
+  --certificate-identity-regexp 'https://github.com/shebang-labs/hcloud-operator/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-helm pull oci://ghcr.io/shebang-labs/charts/hetzner-server-controller --version 1.1.0
+helm pull oci://ghcr.io/shebang-labs/charts/hcloud-operator --version 1.1.0
 ```
 
 ## Repository configuration
@@ -64,7 +64,7 @@ gh workflow run release.yaml --ref v1.1.0
 
 ## Artifact Hub
 
-Register `https://shebang-labs.github.io/hetzner-server-controller` once as a
+Register `https://shebang-labs.github.io/hcloud-operator` once as a
 Helm charts repository at https://artifacthub.io/control-panel/repositories,
 then copy the repository ID into `.github/artifacthub-repo.yml` (it is
 published to `gh-pages` on every release) to become a verified publisher. The

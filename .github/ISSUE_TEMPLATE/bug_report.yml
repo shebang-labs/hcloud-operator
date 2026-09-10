@@ -39,7 +39,7 @@ body:
     id: logs
     attributes:
       label: Controller logs
-      description: "Relevant lines from `kubectl -n hetzner-server-controller logs deploy/hetzner-server-controller`. They are JSON, one object per line."
+      description: "Relevant lines from `kubectl -n hcloud-operator logs deploy/hcloud-operator`. They are JSON, one object per line."
       render: shell
 
   - type: input

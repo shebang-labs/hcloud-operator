@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hcloud-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hcloud-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "hcloud-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hcloud-operator.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if and .Values.hetzner.token (not .Values.hetzner.existingSecret) }}
+        # Roll the Pods when the token changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "hcloud-operator.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: {{ include "hcloud-operator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- if .Values.webhook.enabled }}
+            - name: webhook
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: HETZNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hcloud-operator.tokenSecretName" . }}
+                  key: {{ include "hcloud-operator.tokenSecretKey" . }}
+            - name: HETZNER_API_URL
+              value: {{ .Values.hetzner.apiUrl | quote }}
+            - name: HETZNER_TIMEOUT_MS
+              value: {{ .Values.hetzner.timeoutMs | quote }}
+            - name: HETZNER_REQUESTS_PER_HOUR
+              value: {{ .Values.hetzner.requestsPerHour | quote }}
+            - name: ACTION_TIMEOUT_MS
+              value: {{ .Values.hetzner.actionTimeoutMs | quote }}
+            - name: WATCH_NAMESPACE
+              value: {{ .Values.controller.watchNamespace | quote }}
+            - name: ENABLED_KINDS
+              value: {{ join "," .Values.controller.enabledKinds | quote }}
+            - name: RESYNC_PERIOD_MS
+              value: {{ .Values.controller.resyncPeriodMs | quote }}
+            - name: CONCURRENCY
+              value: {{ .Values.controller.concurrency | quote }}
+            - name: RETRY_BASE_DELAY_MS
+              value: {{ .Values.controller.retryBaseDelayMs | quote }}
+            - name: RETRY_MAX_DELAY_MS
+              value: {{ .Values.controller.retryMaxDelayMs | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.controller.logLevel | quote }}
+            - name: HEALTH_PORT
+              value: {{ .Values.metrics.port | quote }}
+            - name: LEADER_ELECTION_ENABLED
+              value: {{ .Values.leaderElection.enabled | quote }}
+            - name: LEADER_ELECTION_LEASE_NAME
+              value: {{ include "hcloud-operator.fullname" . | quote }}
+            - name: LEADER_ELECTION_LEASE_DURATION_MS
+              value: {{ .Values.leaderElection.leaseDurationMs | quote }}
+            # Identity for the leader lease, and the namespace it lives in.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: WEBHOOK_ENABLED
+              value: {{ .Values.webhook.enabled | quote }}
+            {{- if .Values.webhook.enabled }}
+            - name: WEBHOOK_PORT
+              value: {{ .Values.webhook.port | quote }}
+            - name: WEBHOOK_CERT_FILE
+              value: /etc/webhook/certs/tls.crt
+            - name: WEBHOOK_KEY_FILE
+              value: /etc/webhook/certs/tls.key
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.webhook.enabled .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- if .Values.webhook.enabled }}
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.webhook.enabled .Values.extraVolumes }}
+      volumes:
+        {{- if .Values.webhook.enabled }}
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "hcloud-operator.webhookSecretName" . }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}

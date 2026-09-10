@@ -19,7 +19,7 @@ interface KubernetesDocument {
     spec?: unknown;
 }
 
-const CRD_DIR = join(process.cwd(), 'charts', 'hetzner-server-controller', 'crds');
+const CRD_DIR = join(process.cwd(), 'charts', 'hcloud-operator', 'crds');
 const EXAMPLES_DIR = join(process.cwd(), 'examples');
 
 /** A validator per kind, built from the CRD's own openAPIV3Schema. */

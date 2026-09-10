@@ -39,10 +39,10 @@ describe('the files a public repository needs', () => {
         '.github/CODEOWNERS',
         '.github/workflows/ci.yaml',
         '.github/workflows/release.yaml',
-        'charts/hetzner-server-controller/Chart.yaml',
-        'charts/hetzner-server-controller/values.yaml',
-        'charts/hetzner-server-controller/values.schema.json',
-        'charts/hetzner-server-controller/README.md',
+        'charts/hcloud-operator/Chart.yaml',
+        'charts/hcloud-operator/values.yaml',
+        'charts/hcloud-operator/values.schema.json',
+        'charts/hcloud-operator/README.md',
         'docs/architecture.md',
         'docs/operations.md',
         'docs/adoption.md',
@@ -65,11 +65,11 @@ describe('naming consistency', () => {
             'SECURITY.md',
             'CONTRIBUTING.md',
             'CHANGELOG.md',
-            'charts/hetzner-server-controller/Chart.yaml',
+            'charts/hcloud-operator/Chart.yaml',
         ]) {
             const text = read(path);
             if (text.includes('github.com/shebang-labs/')) {
-                expect(text, path).toContain('shebang-labs/hetzner-server-controller');
+                expect(text, path).toContain('shebang-labs/hcloud-operator');
             }
         }
     });
@@ -80,7 +80,7 @@ describe('naming consistency', () => {
         const release = load(read('.github/workflows/release.yaml')) as {
             env: Record<string, string>;
         };
-        const values = load(read('charts/hetzner-server-controller/values.yaml')) as {
+        const values = load(read('charts/hcloud-operator/values.yaml')) as {
             image: { repository: string; tag: string };
         };
         expect(values.image.repository).toBe(release.env.IMAGE);
@@ -109,7 +109,7 @@ describe('the Node.js version', () => {
 });
 
 describe('versioning', () => {
-    const chart = load(read('charts/hetzner-server-controller/Chart.yaml')) as {
+    const chart = load(read('charts/hcloud-operator/Chart.yaml')) as {
         version: string;
         appVersion: string;
         annotations: Record<string, string>;
@@ -195,7 +195,7 @@ describe('CI', () => {
         // copy lives on GHCR, under charts/, and is the one exception.
         for (const path of WORKFLOWS) {
             const text = read(path);
-            expect(text, path).toContain('IMAGE: shebanglabs/hetzner-server-controller');
+            expect(text, path).toContain('IMAGE: shebanglabs/hcloud-operator');
             expect(text, path).not.toMatch(/quay\.io/);
             expect(text, path).not.toMatch(
                 /ghcr\.io\/(?!\$\{\{ github\.repository_owner \}\}\/charts)/,
@@ -310,13 +310,13 @@ describe('supply-chain hardening', () => {
 
 describe('the repository contains no committed credentials', () => {
     it('ships no token in the chart defaults or the CI values', () => {
-        const values = load(read('charts/hetzner-server-controller/values.yaml')) as {
+        const values = load(read('charts/hcloud-operator/values.yaml')) as {
             hetzner: { token: string; existingSecret: string };
         };
         expect(values.hetzner.token).toBe('');
         expect(values.hetzner.existingSecret).toBe('');
-        for (const file of readdirSync(join(root, 'charts/hetzner-server-controller/ci'))) {
-            const text = read(`charts/hetzner-server-controller/ci/${file}`);
+        for (const file of readdirSync(join(root, 'charts/hcloud-operator/ci'))) {
+            const text = read(`charts/hcloud-operator/ci/${file}`);
             // A real Hetzner token is 64 alphanumerics; the placeholder is not.
             expect(text, file).not.toMatch(/token: [A-Za-z0-9]{64}/);
         }

@@ -74,7 +74,7 @@ is applied.
 Every Hetzner resource the controller creates carries labels:
 
 ```
-hcloud.shebanglabs.io/managed-by = hetzner-server-controller
+hcloud.shebanglabs.io/managed-by = hcloud-operator
 hcloud.shebanglabs.io/uid        = <metadata.uid>
 hcloud.shebanglabs.io/namespace  = <metadata.namespace>
 hcloud.shebanglabs.io/name       = <metadata.name>

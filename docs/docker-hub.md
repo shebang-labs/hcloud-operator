@@ -1,18 +1,18 @@
-# hetzner-server-controller
+# hcloud-operator
 
 A Kubernetes operator that manages Hetzner Cloud declaratively: servers,
 volumes, networks, firewalls, load balancers, floating and primary IPs,
 certificates, images, SSH keys and placement groups as custom resources.
 
 Source, documentation and Helm chart:
-https://github.com/shebang-labs/hetzner-server-controller
+https://github.com/shebang-labs/hcloud-operator
 
 ## Install
 
 ```bash
-helm repo add shebanglabs https://shebang-labs.github.io/hetzner-server-controller
-helm install hetzner-server-controller shebanglabs/hetzner-server-controller \
-  --namespace hetzner-server-controller --create-namespace \
+helm repo add shebanglabs https://shebang-labs.github.io/hcloud-operator
+helm install hcloud-operator shebanglabs/hcloud-operator \
+  --namespace hcloud-operator --create-namespace \
   --set hetzner.token=<your Hetzner Cloud API token>
 ```
 
@@ -30,8 +30,8 @@ user (uid 65532), ship an SBOM and SLSA provenance, and release tags are signed
 with cosign:
 
 ```bash
-cosign verify docker.io/shebanglabs/hetzner-server-controller:1.0.0 \
-  --certificate-identity-regexp 'https://github.com/shebang-labs/hetzner-server-controller/' \
+cosign verify docker.io/shebanglabs/hcloud-operator:1.0.0 \
+  --certificate-identity-regexp 'https://github.com/shebang-labs/hcloud-operator/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -40,7 +40,7 @@ cosign verify docker.io/shebanglabs/hetzner-server-controller:1.0.0 \
 ```bash
 docker run --rm -e HETZNER_TOKEN=... -e LEADER_ELECTION_ENABLED=false \
   -v ~/.kube/config:/kube/config:ro -e KUBECONFIG=/kube/config \
-  shebanglabs/hetzner-server-controller:1.0.0
+  shebanglabs/hcloud-operator:1.0.0
 ```
 
 The only required variable is `HETZNER_TOKEN`; the image refuses to start

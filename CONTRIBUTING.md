@@ -6,8 +6,8 @@ meant to be readable, and the tooling is meant to stay out of your way.
 ## Getting set up
 
 ```bash
-git clone https://github.com/shebang-labs/hetzner-server-controller
-cd hetzner-server-controller
+git clone https://github.com/shebang-labs/hcloud-operator
+cd hcloud-operator
 npm install
 npm run verify        # lint + typecheck + tests, the same gate CI runs
 ```
@@ -49,8 +49,8 @@ keep it that way — it is what makes every layer testable without a cluster.
 2. Add the adapter under `src/resources/` — `create`, `update`, `project`,
    `drift`, `validate`. Nothing else.
 3. Register it in `src/resources/index.ts`.
-4. Add the CRD in `charts/hetzner-server-controller/crds/` and the plural to
-   `hetzner-server-controller.plurals` in `templates/_helpers.tpl`.
+4. Add the CRD in `charts/hcloud-operator/crds/` and the plural to
+   `hcloud-operator.plurals` in `templates/_helpers.tpl`.
 5. Add an example in `examples/` and a row to the README table.
 6. Add a test file under `test/resources/`.
 

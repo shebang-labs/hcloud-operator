@@ -43,9 +43,9 @@ interface Document {
     stringData?: Record<string, string>;
 }
 
-const CHART = join(process.cwd(), 'charts', 'hetzner-server-controller');
+const CHART = join(process.cwd(), 'charts', 'hcloud-operator');
 const RELEASE = 'hsc';
-const NAMESPACE = 'hetzner-server-controller';
+const NAMESPACE = 'hcloud-operator';
 
 const helmAvailable = spawnSync('helm', ['version', '--short']).status === 0;
 
@@ -274,9 +274,7 @@ describe.skipIf(!helmAvailable)('the Helm chart', () => {
             const chart = load(readFileSync(join(CHART, 'Chart.yaml'), 'utf8')) as {
                 appVersion: string;
             };
-            expect(container.image).toBe(
-                `shebanglabs/hetzner-server-controller:${chart.appVersion}`,
-            );
+            expect(container.image).toBe(`shebanglabs/hcloud-operator:${chart.appVersion}`);
         });
 
         it('runs unprivileged, as a non-root user, with a read-only root filesystem', () => {
@@ -401,7 +399,7 @@ describe.skipIf(!helmAvailable)('the Helm chart', () => {
 
         it('exposes metrics on a Service the helm test can reach', () => {
             const service = documents(defaults, 'Service')[0];
-            expect(service?.metadata?.name).toBe(`${RELEASE}-hetzner-server-controller-metrics`);
+            expect(service?.metadata?.name).toBe(`${RELEASE}-hcloud-operator-metrics`);
             const test = defaults.find(
                 (document) => document.metadata?.annotations?.['helm.sh/hook'] === 'test',
             );

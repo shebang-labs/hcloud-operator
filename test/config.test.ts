@@ -110,11 +110,11 @@ describe('loadConfig', () => {
     it('derives the leader identity and namespace from the Pod', () => {
         const config = loadConfig({
             ...minimal,
-            POD_NAME: 'hetzner-server-controller-abc',
+            POD_NAME: 'hcloud-operator-abc',
             POD_NAMESPACE: 'platform',
         });
 
-        expect(config.leaderElectionIdentity).toBe('hetzner-server-controller-abc');
+        expect(config.leaderElectionIdentity).toBe('hcloud-operator-abc');
         expect(config.leaderElectionNamespace).toBe('platform');
     });
 

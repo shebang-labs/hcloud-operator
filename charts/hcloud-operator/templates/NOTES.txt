@@ -1,0 +1,31 @@
+{{ .Chart.Name }} {{ .Chart.Version }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Check that it is running:
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Then create your first Hetzner resource:
+
+  cat <<YAML | kubectl apply -f -
+  apiVersion: hcloud.shebanglabs.io/v1alpha1
+  kind: HetznerServer
+  metadata:
+    name: web-01
+  spec:
+    serverType: cpx11
+    image: ubuntu-24.04
+    location: nbg1
+  YAML
+
+  kubectl get hetznerservers -w
+{{- if .Values.hetzner.existingSecret }}
+
+The token is read from Secret "{{ .Values.hetzner.existingSecret }}", key "{{ .Values.hetzner.existingSecretKey }}".
+{{- end }}
+{{- if .Values.webhook.enabled }}
+
+The validating webhook is enabled. It needs cert-manager; if the Pods stay in ContainerCreating, check that the Certificate "{{ include "hcloud-operator.webhookCertificateName" . }}" is Ready.
+Before uninstalling, disable the webhook first (helm upgrade --set webhook.enabled=false), otherwise every apply of a Hetzner resource is rejected while the ValidatingWebhookConfiguration outlives the controller.
+{{- end }}
+
+Documentation: https://github.com/shebang-labs/hcloud-operator

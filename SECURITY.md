@@ -5,7 +5,7 @@
 Please **do not open a public issue** for a security problem.
 
 Report it privately through
-[GitHub's private vulnerability reporting](https://github.com/shebang-labs/hetzner-server-controller/security/advisories/new),
+[GitHub's private vulnerability reporting](https://github.com/shebang-labs/hcloud-operator/security/advisories/new),
 or by email to **security@shebanglabs.io**.
 
 Please include:

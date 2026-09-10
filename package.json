@@ -1,5 +1,5 @@
 {
-    "name": "@shebanglabs/hetzner-server-controller",
+    "name": "@shebanglabs/hcloud-operator",
     "version": "1.0.0",
     "description": "A Kubernetes operator that manages Hetzner Cloud declaratively: servers, volumes, networks, firewalls, load balancers, IPs, certificates, images, SSH keys and placement groups.",
     "license": "MIT",
@@ -22,9 +22,9 @@
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
         "verify": "npm run lint && npm run typecheck && npm run test",
-        "chart:lint": "helm lint charts/hetzner-server-controller -f charts/hetzner-server-controller/ci/default-values.yaml",
-        "chart:template": "helm template hetzner-server-controller charts/hetzner-server-controller -f charts/hetzner-server-controller/ci/default-values.yaml --include-crds",
-        "chart:docs": "docker run --rm -v \"$(pwd)/charts/hetzner-server-controller:/helm-docs\" -u \"$(id -u)\" jnorwood/helm-docs:v1.14.2"
+        "chart:lint": "helm lint charts/hcloud-operator -f charts/hcloud-operator/ci/default-values.yaml",
+        "chart:template": "helm template hcloud-operator charts/hcloud-operator -f charts/hcloud-operator/ci/default-values.yaml --include-crds",
+        "chart:docs": "docker run --rm -v \"$(pwd)/charts/hcloud-operator:/helm-docs\" -u \"$(id -u)\" jnorwood/helm-docs:v1.14.2"
     },
     "keywords": [
         "kubernetes",
@@ -36,11 +36,11 @@
     ],
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/shebang-labs/hetzner-server-controller.git"
+        "url": "git+https://github.com/shebang-labs/hcloud-operator.git"
     },
-    "homepage": "https://github.com/shebang-labs/hetzner-server-controller#readme",
+    "homepage": "https://github.com/shebang-labs/hcloud-operator#readme",
     "bugs": {
-        "url": "https://github.com/shebang-labs/hetzner-server-controller/issues"
+        "url": "https://github.com/shebang-labs/hcloud-operator/issues"
     },
     "dependencies": {
         "@kubernetes/client-node": "^2.0.0",

@@ -33,8 +33,8 @@ self-signed `Issuer`, a `Certificate`, a `Service` and the
 `ValidatingWebhookConfiguration`, and mounts the certificate into the Pods.
 
 ```bash
-helm upgrade hetzner-server-controller shebanglabs/hetzner-server-controller \
-  -n hetzner-server-controller --reuse-values \
+helm upgrade hcloud-operator shebanglabs/hcloud-operator \
+  -n hcloud-operator --reuse-values \
   --set webhook.enabled=true
 ```
 
@@ -49,8 +49,8 @@ To use your own issuer:
 ## Disable, and uninstall order
 
 ```bash
-helm upgrade hetzner-server-controller shebanglabs/hetzner-server-controller \
-  -n hetzner-server-controller --reuse-values \
+helm upgrade hcloud-operator shebanglabs/hcloud-operator \
+  -n hcloud-operator --reuse-values \
   --set webhook.enabled=false
 ```
 

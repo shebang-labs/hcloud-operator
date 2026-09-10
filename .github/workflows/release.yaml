@@ -1,7 +1,7 @@
 name: Release
 
 # A release is a version tag. Pushing v1.2.3 publishes:
-#   - docker.io/shebanglabs/hetzner-server-controller:1.2.3 (+ :latest, + :<sha>), multi-arch, signed
+#   - docker.io/shebanglabs/hcloud-operator:1.2.3 (+ :latest, + :<sha>), multi-arch, signed
 #   - the Helm chart to the GitHub Pages repository and as an OCI artifact on Docker Hub
 #   - a GitHub Release with the changelog section and the chart archive
 #
@@ -19,13 +19,13 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: shebanglabs/hetzner-server-controller
+  IMAGE: shebanglabs/hcloud-operator
   # The chart as an OCI artifact. Not Docker Hub: an OCI chart is stored under
   # its chart name, which is also the image's repository, and the two would
   # fight over the 1.2.3 tag. GHCR allows a charts/ prefix and needs no extra
   # secret.
   CHART_OCI: oci://ghcr.io/${{ github.repository_owner }}/charts
-  CHART_DIR: charts/hetzner-server-controller
+  CHART_DIR: charts/hcloud-operator
 
 jobs:
   check:
@@ -81,7 +81,7 @@ jobs:
             type=raw,value=${{ needs.check.outputs.version }}
             type=sha,format=long,prefix=
           labels: |
-            org.opencontainers.image.title=hetzner-server-controller
+            org.opencontainers.image.title=hcloud-operator
             org.opencontainers.image.description=Kubernetes operator for Hetzner Cloud
             org.opencontainers.image.vendor=Shebang Labs
             org.opencontainers.image.licenses=MIT
@@ -145,9 +145,9 @@ jobs:
             echo '## Install'
             echo
             echo '```bash'
-            echo 'helm repo add shebanglabs https://shebang-labs.github.io/hetzner-server-controller'
-            echo "helm install hetzner-server-controller shebanglabs/hetzner-server-controller --version ${{ needs.check.outputs.version }} \\"
-            echo '  --namespace hetzner-server-controller --create-namespace --set hetzner.token=<token>'
+            echo 'helm repo add shebanglabs https://shebang-labs.github.io/hcloud-operator'
+            echo "helm install hcloud-operator shebanglabs/hcloud-operator --version ${{ needs.check.outputs.version }} \\"
+            echo '  --namespace hcloud-operator --create-namespace --set hetzner.token=<token>'
             echo '```'
             echo
             echo "Image: \`docker.io/${IMAGE}:${{ needs.check.outputs.version }}\` (linux/amd64, linux/arm64, signed with cosign)."
@@ -184,5 +184,5 @@ jobs:
         run: |
           echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm package "$CHART_DIR" --destination /tmp/chart
-          helm push /tmp/chart/hetzner-server-controller-${{ needs.check.outputs.version }}.tgz "$CHART_OCI"
+          helm push /tmp/chart/hcloud-operator-${{ needs.check.outputs.version }}.tgz "$CHART_OCI"
           helm registry logout ghcr.io

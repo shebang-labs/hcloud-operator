@@ -1,0 +1,9 @@
+hetzner:
+  existingSecret: hcloud-operator-ci
+webhook:
+  enabled: true
+metrics:
+  serviceMonitor:
+    enabled: true
+networkPolicy:
+  enabled: true

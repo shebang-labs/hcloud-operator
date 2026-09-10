@@ -3,7 +3,7 @@
  *
  * One group, one version, one finalizer scheme, one status shape. Keeping these
  * in a single file means adding a twelfth kind cannot accidentally invent a
- * second convention — and the CRDs in `charts/hetzner-server-controller/crds/` can be diffed against it.
+ * second convention — and the CRDs in `charts/hcloud-operator/crds/` can be diffed against it.
  */
 
 import type { KubernetesObject } from '@kubernetes/client-node';
@@ -29,7 +29,7 @@ export const OwnerLabel = {
     Kind: `${GROUP}/kind`,
 } as const;
 
-export const MANAGED_BY_VALUE = 'hetzner-server-controller';
+export const MANAGED_BY_VALUE = 'hcloud-operator';
 
 /** Identifies one kind: everything needed to address it over the API. */
 export interface ResourceDescriptor {

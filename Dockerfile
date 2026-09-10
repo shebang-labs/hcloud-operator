@@ -34,11 +34,11 @@ FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
-LABEL org.opencontainers.image.title="hetzner-server-controller" \
+LABEL org.opencontainers.image.title="hcloud-operator" \
       org.opencontainers.image.description="Kubernetes operator that manages Hetzner Cloud declaratively" \
       org.opencontainers.image.vendor="Shebang Labs" \
-      org.opencontainers.image.documentation="https://github.com/shebang-labs/hetzner-server-controller#readme" \
-      org.opencontainers.image.source="https://github.com/shebang-labs/hetzner-server-controller" \
+      org.opencontainers.image.documentation="https://github.com/shebang-labs/hcloud-operator#readme" \
+      org.opencontainers.image.source="https://github.com/shebang-labs/hcloud-operator" \
       org.opencontainers.image.licenses="MIT"
 
 # A dedicated unprivileged user. The uid matches the Helm chart's

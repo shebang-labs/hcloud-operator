@@ -69,8 +69,8 @@ function makeElector(
 
     const elector = createLeaderElector({
         coordination: store.api,
-        namespace: 'hetzner-server-controller',
-        leaseName: 'hetzner-server-controller',
+        namespace: 'hcloud-operator',
+        leaseName: 'hcloud-operator',
         identity: 'operator-a',
         leaseDurationMs: 15_000,
         logger: nullLogger,
@@ -135,7 +135,7 @@ describe('createLeaderElector', () => {
 
     it('takes over a lease whose holder stopped renewing', async () => {
         const store = leaseApi({
-            metadata: { name: 'hetzner-server-controller', resourceVersion: '1' },
+            metadata: { name: 'hcloud-operator', resourceVersion: '1' },
             spec: {
                 holderIdentity: 'operator-b',
                 leaseDurationSeconds: 15,
@@ -157,7 +157,7 @@ describe('createLeaderElector', () => {
 
     it('waits while another replica is renewing, and never starts leading', async () => {
         const store = leaseApi({
-            metadata: { name: 'hetzner-server-controller', resourceVersion: '1' },
+            metadata: { name: 'hcloud-operator', resourceVersion: '1' },
             spec: {
                 holderIdentity: 'operator-b',
                 leaseDurationSeconds: 15,
@@ -173,8 +173,8 @@ describe('createLeaderElector', () => {
 
         const elector = createLeaderElector({
             coordination: store.api,
-            namespace: 'hetzner-server-controller',
-            leaseName: 'hetzner-server-controller',
+            namespace: 'hcloud-operator',
+            leaseName: 'hcloud-operator',
             identity: 'operator-a',
             leaseDurationMs: 15_000,
             logger: nullLogger,
@@ -211,7 +211,7 @@ describe('createLeaderElector', () => {
         onStartedLeading.mockImplementation(() => {
             // Another replica grabs the lease the moment we become leader.
             store.current = {
-                metadata: { name: 'hetzner-server-controller', resourceVersion: '99' },
+                metadata: { name: 'hcloud-operator', resourceVersion: '99' },
                 spec: {
                     holderIdentity: 'operator-b',
                     leaseDurationSeconds: 15,
@@ -318,12 +318,12 @@ describe('renewal resilience', () => {
         onStartedLeading.mockImplementation(() => {
             // A newer resourceVersion than the one we read: our renewal 409s.
             store.current = {
-                metadata: { name: 'hetzner-server-controller', resourceVersion: '42' },
+                metadata: { name: 'hcloud-operator', resourceVersion: '42' },
                 spec: { holderIdentity: 'operator-a', leaseDurationSeconds: 15 },
             };
             const api = store.api;
             api.readNamespacedLease = async () => ({
-                metadata: { name: 'hetzner-server-controller', resourceVersion: '2' },
+                metadata: { name: 'hcloud-operator', resourceVersion: '2' },
                 spec: { holderIdentity: 'operator-a', leaseDurationSeconds: 15 },
             });
         });
