@@ -36,8 +36,9 @@ cannot fill its namespace's event retention.
 `/healthz`, `/readyz` and `/metrics` on port 8080 (`metrics.port`).
 
 Liveness stays green for a standby replica — a non-leader is healthy, it just
-has nothing to do. Readiness turns green when the informers have synced, so only
-the active replica appears in the Service.
+has nothing to do. Readiness is green for a standby too, and for the leader
+once its informers have synced. Standbys must be Ready, or a rolling update
+could never retire the old leader.
 
 ```
 hcloud_operator_reconcile_total{kind,outcome}

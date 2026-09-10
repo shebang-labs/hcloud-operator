@@ -1,0 +1,68 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+The only required value is a Hetzner Cloud API token with Read & Write
+permission (Hetzner Cloud Console → **Security → API tokens**).
+
+## Install
+
+```bash
+helm repo add shebanglabs https://shebang-labs.github.io/hetzner-server-controller
+helm install hetzner-server-controller shebanglabs/hetzner-server-controller \
+  --namespace hetzner-server-controller --create-namespace \
+  --set hetzner.token=<your token>
+```
+
+Or as an OCI artifact:
+
+```bash
+helm install hetzner-server-controller \
+  oci://registry-1.docker.io/shebanglabs/hetzner-server-controller-chart --version {{ template "chart.version" . }} \
+  --namespace hetzner-server-controller --create-namespace \
+  --set hetzner.token=<your token>
+```
+
+To use a Secret you manage yourself (External Secrets, Sealed Secrets, SOPS):
+
+```bash
+--set hetzner.existingSecret=<name> --set hetzner.existingSecretKey=token
+```
+
+## Common configurations
+
+| Goal | Values |
+| --- | --- |
+| Single replica | `replicaCount=1 leaderElection.enabled=false` |
+| One namespace only (namespaced RBAC) | `controller.watchNamespace=<ns>` |
+| Only some kinds | `controller.enabledKinds={HetznerServer,HetznerVolume}` |
+| Reject invalid specs at apply time (needs cert-manager) | `webhook.enabled=true` |
+| Prometheus Operator | `metrics.serviceMonitor.enabled=true` |
+| No access to Secrets (no uploaded certificates) | `rbac.secretsAccess=false` |
+| Restrict network traffic | `networkPolicy.enabled=true` |
+| Pin the image by digest | `image.digest=sha256:...` |
+
+## CRDs
+
+The chart installs the eleven `hcloud.shebanglabs.io` CRDs from its `crds/`
+directory. Helm never upgrades CRDs; when a release changes them, apply them
+first with `kubectl apply --server-side -f crds/`. They are kept on
+`helm uninstall` so your objects, and the Hetzner resources behind them, are
+never touched by removing the controller.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
+
+## Uninstall
+
+```bash
+helm uninstall hetzner-server-controller -n hetzner-server-controller
+```
+
+If the webhook is enabled, disable it first (`--set webhook.enabled=false`);
+see [docs/webhook.md](../../docs/webhook.md).
+
+{{ template "helm-docs.versionFooter" . }}
