@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Server } from '../../src/hcloud/types.js';
 import { CONDITION_READY, CONDITION_SYNCED } from '../../src/kube/conditions.js';
+import type { SecretReader } from '../../src/kube/secrets.js';
 import { createNetworkAdapter } from '../../src/resources/network.js';
 import { createPlacementGroupAdapter } from '../../src/resources/placement-group.js';
 import { createServerAdapter, describeServerState } from '../../src/resources/server/index.js';
@@ -32,6 +33,11 @@ function server(spec: Partial<HetznerServerSpec> = {}, options = {}) {
         { ...baseSpec, ...spec },
         options,
     );
+}
+
+/** A Secret reader backed by a plain map, as in certificate.test.ts. */
+function secretReader(data: Record<string, string> = {}): SecretReader {
+    return { read: async (_namespace, ref) => data[ref.key] ?? null };
 }
 
 let harness: Harness;
@@ -57,6 +63,7 @@ describe('validation', () => {
         [{ location: 'nbg1', datacenter: 'nbg1-dc3' }, /mutually exclusive/],
         [{ powerState: 'Paused' as never }, /must be "Running" or "Stopped"/],
         [{ gracefulShutdownTimeoutSeconds: -1 }, /must not be negative/],
+        [{ userData: '#cloud-config', userDataSecretRef: { name: 'boot' } }, /mutually exclusive/],
     ])('rejects %o', async (spec, expected) => {
         const resource = server(spec);
 
@@ -130,6 +137,53 @@ describe('creation', () => {
         expect(body.ssh_keys).toHaveLength(1);
         expect(body.networks).toHaveLength(1);
         expect(body.placement_group).toEqual(expect.any(Number));
+    });
+
+    it('passes inline user data straight through', async () => {
+        await servers.settle(server({ userData: '#cloud-config\nruncmd: [echo hi]' }));
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({
+            user_data: '#cloud-config\nruncmd: [echo hi]',
+        });
+    });
+
+    it('reads user data from the Secret it points at', async () => {
+        const secrets = secretReader({ 'user-data': '#cloud-config\nruncmd: [join-k3s]' });
+        servers = harness.register(createServerAdapter(harness.hcloud.servers, { secrets }));
+
+        await servers.settle(server({ userDataSecretRef: { name: 'k3s-agent-cloud-init' } }));
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({
+            user_data: '#cloud-config\nruncmd: [join-k3s]',
+        });
+    });
+
+    it('honours a custom key in that Secret', async () => {
+        const secrets = secretReader({ 'agent.yaml': '#cloud-config' });
+        servers = harness.register(createServerAdapter(harness.hcloud.servers, { secrets }));
+
+        await servers.settle(server({ userDataSecretRef: { name: 'boot', key: 'agent.yaml' } }));
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({ user_data: '#cloud-config' });
+    });
+
+    it('refuses to create a server whose user data Secret is missing the key', async () => {
+        const secrets = secretReader();
+        servers = harness.register(createServerAdapter(harness.hcloud.servers, { secrets }));
+        const resource = server({ userDataSecretRef: { name: 'boot' } });
+
+        // Throwing rather than booting an unconfigured server: user data cannot
+        // be applied after create, and the reconcile retries once the Secret
+        // lands.
+        await expect(servers.once(resource)).rejects.toThrow(/has no key "user-data"/);
+        expect(harness.api.all('servers')).toHaveLength(0);
+    });
+
+    it('refuses to create one when the controller cannot read Secrets at all', async () => {
+        const resource = server({ userDataSecretRef: { name: 'boot' } });
+
+        await expect(servers.once(resource)).rejects.toThrow(/cannot read Secrets/);
+        expect(harness.api.all('servers')).toHaveLength(0);
     });
 
     it('reports the addresses and the Hetzner status', async () => {

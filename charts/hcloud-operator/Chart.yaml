@@ -7,8 +7,8 @@ description: >-
 type: application
 # The chart and the application are versioned together: chart 1.2.3 always
 # ships image 1.2.3. One number for users to reason about.
-version: 1.0.0
-appVersion: "1.0.0"
+version: 1.1.0
+appVersion: "1.1.0"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/shebang-labs/hcloud-operator
 icon: https://raw.githubusercontent.com/shebang-labs/hcloud-operator/main/docs/assets/icon.svg
@@ -38,7 +38,7 @@ annotations:
       url: https://github.com/shebang-labs/hcloud-operator/tree/main/examples
   artifacthub.io/images: |
     - name: hcloud-operator
-      image: docker.io/shebanglabs/hcloud-operator:1.0.0
+      image: docker.io/shebanglabs/hcloud-operator:1.1.0
   artifacthub.io/crds: |
     - kind: HetznerServer
       version: v1alpha1
@@ -117,4 +117,4 @@ annotations:
           name: web-01
   artifacthub.io/changes: |
     - kind: added
-      description: First public release with eleven managed Hetzner Cloud resources.
+      description: HetznerServer.spec.userDataSecretRef, for cloud-init that carries credentials.

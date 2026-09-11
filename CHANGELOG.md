@@ -12,6 +12,24 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-11
+
+### Added
+
+- `HetznerServer.spec.userDataSecretRef` reads the cloud-init user data from a
+  Secret in the object's namespace instead of inlining it, so user data that
+  carries credentials — a cluster join token, a registry key — does not have to
+  live in a custom resource or in Git. Read once at create time, never written
+  to status, and mutually exclusive with `spec.userData`. Needs the controller's
+  optional Secret read permission (`rbac.secretsAccess=true`); without it the
+  create fails with that instruction rather than booting a server whose user
+  data never arrived.
+
+### Changed
+
+- The `HetznerServer` CRD gains a field, so apply the CRDs before upgrading:
+  Helm installs them but never upgrades them. Existing objects are unaffected.
+
 ## [1.0.0] — 2026-09-10
 
 First public release.
@@ -48,5 +66,6 @@ First public release.
 - Multi-arch images (`linux/amd64`, `linux/arm64`) on Docker Hub, signed with
   cosign and shipped with an SBOM and provenance.
 
-[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.0
 [1.0.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.0.0

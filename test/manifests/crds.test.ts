@@ -206,9 +206,10 @@ describe('the CRD files', () => {
                 if (!path.endsWith('Ref') && !path.endsWith('Refs[]')) {
                     return;
                 }
-                // secretRef points at a Kubernetes Secret, not a Hetzner
-                // resource, so it has a different shape by design.
-                if (path.endsWith('.secretRef')) {
+                // A reference to a Kubernetes Secret — secretRef,
+                // userDataSecretRef — is not a reference to a Hetzner resource,
+                // so it has a different shape by design.
+                if (path.endsWith('.secretRef') || path.endsWith('SecretRef')) {
                     return;
                 }
                 expect(Object.keys(node.properties ?? {}).sort(), path).toEqual([

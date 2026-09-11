@@ -139,6 +139,44 @@ Objects with `deletionPolicy: Orphan` are released without deleting the Hetzner
 resource. If the webhook is enabled, disable it before uninstalling (see
 [webhook.md](webhook.md)).
 
+## User data that carries credentials
+
+`spec.userData` is part of the object: readable by anyone with `get` on
+`HetznerServer`, printed by `kubectl get -o yaml`, and committed to Git if you
+manage the object with GitOps. Cloud-init that holds a cluster join token or a
+registry key does not belong there.
+
+Point at a Secret in the same namespace instead:
+
+```yaml
+spec:
+  serverType: cx22
+  image: ubuntu-24.04
+  userDataSecretRef:
+    name: k3s-agent-cloud-init
+    key: user-data          # the default
+```
+
+```bash
+--set rbac.secretsAccess=true    # the controller needs get on Secrets
+```
+
+The document is read once, at create time — Hetzner cannot change a running
+server's user data, so neither can the operator — and is never written to
+status or logged. `userData` and `userDataSecretRef` are mutually exclusive.
+
+A missing Secret or key fails the create instead of booting a server without
+its user data, which would come up unconfigured and could only be fixed by
+recreating it. The reconcile retries, so a Secret that is synced in a moment
+later by External Secrets or the 1Password operator is fine: the server appears
+once it lands.
+
+One Secret can serve many servers. If the document needs per-node values,
+prefer deriving them on the node — the hostname, the private NIC's address —
+over rendering one Secret per server, which puts you back to managing a
+credential per node. See
+[`examples/single/user-data-from-secret.yaml`](../examples/single/user-data-from-secret.yaml).
+
 ## Environment variables
 
 The chart sets every variable from `values.yaml`; this table is for running the

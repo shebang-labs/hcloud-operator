@@ -83,10 +83,10 @@ serviceAccount:
 rbac:
   # -- Create the ClusterRole/Role and bindings the controller needs.
   create: true
-  # -- Grant `get` on Secrets. Needed only for `HetznerCertificate` with
-  # `type: uploaded`, which reads PEM material from a Secret. This is the
-  # broadest permission the controller holds; turn it off if you do not use
-  # uploaded certificates.
+  # -- Grant `get` on Secrets. Needed for `HetznerCertificate` with
+  # `type: uploaded`, which reads PEM material from a Secret, and for
+  # `HetznerServer.spec.userDataSecretRef`. This is the broadest permission the
+  # controller holds; turn it off if you use neither.
   secretsAccess: true
 
 webhook:

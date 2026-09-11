@@ -23,6 +23,7 @@ import { HetznerApiError } from '../../hcloud/errors.js';
 import type { ServerApi } from '../../hcloud/resources/servers.js';
 import type { Server } from '../../hcloud/types.js';
 import type { Phase } from '../../kube/api.js';
+import type { SecretReader } from '../../kube/secrets.js';
 import { ChangeLog } from '../common.js';
 import {
     convergeDnsPtr,
@@ -56,6 +57,12 @@ const REQUEUE_WHILE_NOT_RUNNING_MS = 60_000;
 export interface ServerAdapterOptions {
     /** Source of "now" for the graceful-shutdown timeout. Tests inject one. */
     now?: Clock;
+    /**
+     * Reads `spec.userDataSecretRef`. Optional, unlike the certificate
+     * adapter's: a server only needs it when its user data comes from a Secret,
+     * and most do not.
+     */
+    secrets?: SecretReader;
 }
 
 export function createServerAdapter(
@@ -63,6 +70,7 @@ export function createServerAdapter(
     options: ServerAdapterOptions = {},
 ): ResourceAdapter<HetznerServerSpec, HetznerServerStatus, Server> {
     const clock = options.now ?? systemClock;
+    const secrets = options.secrets;
 
     return {
         descriptor: serverDescriptor,
@@ -95,6 +103,12 @@ export function createServerAdapter(
                 spec.gracefulShutdownTimeoutSeconds < 0
             ) {
                 problems.push('spec.gracefulShutdownTimeoutSeconds must not be negative');
+            }
+            if (spec.userData && spec.userDataSecretRef) {
+                problems.push(
+                    'spec.userData and spec.userDataSecretRef are mutually exclusive; ' +
+                        'keep the inline copy or the Secret, not both',
+                );
             }
             if (spec.publicNet?.enableIPv4 === false && spec.publicNet?.enableIPv6 === false) {
                 if (!spec.networks?.length) {
@@ -131,6 +145,7 @@ export function createServerAdapter(
                       context.namespace,
                   )
                 : undefined;
+            const userData = await resolveUserData(secrets, context.namespace, spec);
 
             return api.create({
                 name: context.hetznerName,
@@ -142,7 +157,7 @@ export function createServerAdapter(
                 sshKeyIds,
                 networkIds,
                 ...(placementGroupId !== undefined ? { placementGroupId } : {}),
-                ...(spec.userData ? { userData: spec.userData } : {}),
+                ...(userData ? { userData } : {}),
                 // Create the server in the state the spec asks for rather than
                 // starting it and immediately stopping it again.
                 startAfterCreate: desiredPowerState(spec) === 'Running',
@@ -368,4 +383,42 @@ export function describeServerState(server: Server): {
                 message: `The server is ${server.status || 'in an unknown state'}`,
             };
     }
+}
+
+/**
+ * The user data to boot with: the inline copy, or the Secret it points at.
+ *
+ * A missing Secret throws rather than booting the server without its user data.
+ * The server would come up unconfigured — no k3s, no registry credentials — and
+ * `userData` cannot be applied after create, so the only fix would be to delete
+ * and recreate it. Failing the create leaves the reconcile to retry, which is
+ * what a Secret that has not been synced yet needs.
+ */
+async function resolveUserData(
+    secrets: SecretReader | undefined,
+    namespace: string,
+    spec: HetznerServerSpec,
+): Promise<string | undefined> {
+    if (spec.userData) {
+        return spec.userData;
+    }
+    const ref = spec.userDataSecretRef;
+    if (!ref) {
+        return undefined;
+    }
+    if (!secrets) {
+        throw new Error(
+            'spec.userDataSecretRef is set but this controller cannot read Secrets. ' +
+                'Install the chart with rbac.secretsAccess=true.',
+        );
+    }
+    const key = ref.key ?? 'user-data';
+    const value = await secrets.read(namespace, { name: ref.name, key });
+    if (!value) {
+        throw new Error(
+            `Secret "${namespace}/${ref.name}" has no key "${key}". ` +
+                'Refusing to create the server without the user data it asks for.',
+        );
+    }
+    return value;
 }

@@ -40,7 +40,7 @@ To use a Secret you manage yourself (External Secrets, Sealed Secrets, SOPS):
 | Only some kinds | `controller.enabledKinds={HetznerServer,HetznerVolume}` |
 | Reject invalid specs at apply time (needs cert-manager) | `webhook.enabled=true` |
 | Prometheus Operator | `metrics.serviceMonitor.enabled=true` |
-| No access to Secrets (no uploaded certificates) | `rbac.secretsAccess=false` |
+| No access to Secrets (no uploaded certificates, no user data from a Secret) | `rbac.secretsAccess=false` |
 | Restrict network traffic | `networkPolicy.enabled=true` |
 | Pin the image by digest | `image.digest=sha256:...` |
 
@@ -119,7 +119,7 @@ Kubernetes: `>=1.25.0-0`
 | podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | priorityClassName | string | `""` |  |
 | rbac.create | bool | `true` | Create the ClusterRole/Role and bindings the controller needs. |
-| rbac.secretsAccess | bool | `true` | Grant `get` on Secrets. Needed only for `HetznerCertificate` with `type: uploaded`, which reads PEM material from a Secret. This is the broadest permission the controller holds; turn it off if you do not use uploaded certificates. |
+| rbac.secretsAccess | bool | `true` | Grant `get` on Secrets. Needed for `HetznerCertificate` with `type: uploaded`, which reads PEM material from a Secret, and for `HetznerServer.spec.userDataSecretRef`. This is the broadest permission the controller holds; turn it off if you use neither. |
 | readinessProbe.failureThreshold | int | `3` |  |
 | readinessProbe.httpGet.path | string | `"/readyz"` |  |
 | readinessProbe.httpGet.port | string | `"http"` |  |

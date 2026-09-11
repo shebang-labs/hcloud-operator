@@ -46,6 +46,13 @@ export interface ServerNetworkSpec {
     aliasIps?: string[];
 }
 
+export interface UserDataSecretRef {
+    /** Name of a Secret in this object's namespace. */
+    name: string;
+    /** Key inside that Secret. Defaults to "user-data". */
+    key?: string;
+}
+
 export interface RescueSpec {
     /** Boot the Hetzner rescue system on the next start. */
     enabled: boolean;
@@ -81,6 +88,12 @@ export interface HetznerServerSpec extends CommonSpec {
     sshKeyRefs?: ResourceRef[];
     /** Cloud-init user data applied at first boot. Immutable. */
     userData?: string;
+    /**
+     * Cloud-init user data read from a Secret at create time. Use this when the
+     * user data carries credentials — a join token, a registry key — that must
+     * not sit in a custom resource. Mutually exclusive with `userData`.
+     */
+    userDataSecretRef?: UserDataSecretRef;
     /** Public IP configuration. Immutable after create. */
     publicNet?: PublicNetSpec;
     /** Private networks this server joins. */

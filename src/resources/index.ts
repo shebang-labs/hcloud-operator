@@ -40,7 +40,7 @@ export function buildKinds({ hcloud, secrets }: RegistryDependencies): KindRegis
         defineKind(createCertificateAdapter(hcloud.certificates, secrets)),
 
         // Servers, and everything that hangs off them.
-        defineKind(createServerAdapter(hcloud.servers)),
+        defineKind(createServerAdapter(hcloud.servers, { secrets })),
         defineKind(createVolumeAdapter(hcloud.volumes)),
         defineKind(createFirewallAdapter(hcloud.firewalls)),
         defineKind(createFloatingIpAdapter(hcloud.floatingIps)),

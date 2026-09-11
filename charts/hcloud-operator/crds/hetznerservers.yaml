@@ -120,7 +120,27 @@ spec:
                           - id
                 userData:
                   type: string
-                  description: Cloud-init user data applied at first boot. Immutable.
+                  description: >-
+                    Cloud-init user data applied at first boot. Immutable. Mutually exclusive with
+                    userDataSecretRef.
+                userDataSecretRef:
+                  type: object
+                  description: >-
+                    Read the cloud-init user data from a Secret in this object's namespace instead
+                    of inlining it, for user data that carries credentials such as a cluster join
+                    token or a registry key. Read once at create time and never stored in status.
+                    Needs the controller's optional Secret read permission
+                    (rbac.secretsAccess=true). Mutually exclusive with userData.
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      description: Name of a Secret in this object's namespace.
+                    key:
+                      type: string
+                      default: user-data
+                      description: Key inside that Secret holding the cloud-init document.
                 publicNet:
                   type: object
                   description: Public IP configuration. Immutable after create.
