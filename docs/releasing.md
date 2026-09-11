@@ -65,10 +65,10 @@ gh workflow run release.yaml --ref v1.1.0
 
 ## Artifact Hub
 
-Register `https://shebang-labs.github.io/hcloud-operator` once as a
-Helm charts repository at https://artifacthub.io/control-panel/repositories,
-then copy the repository ID into `.github/artifacthub-repo.yml` (it is
-published to `gh-pages` on every release) to become a verified publisher. The
+The Helm repository `https://shebang-labs.github.io/hcloud-operator` is
+registered at https://artifacthub.io/control-panel/repositories; its
+repository ID lives in `.github/artifacthub-repo.yml`, which is published to
+`gh-pages` on every release and makes Shebang Labs the verified publisher. The
 `artifacthub.io/*` annotations in `Chart.yaml` — CRDs, examples, images, links,
 changes — are what Artifact Hub renders.
 
