@@ -35,7 +35,8 @@ The `Release` workflow then:
    in the GitHub UI).
 4. Syncs `docs/docker-hub.md` to the Docker Hub repository description.
 
-Verify:
+Verify (cosign v3 or later; signatures are stored as OCI referrers, which
+cosign v2 does not find):
 
 ```bash
 cosign verify docker.io/shebanglabs/hcloud-operator:1.1.0 \

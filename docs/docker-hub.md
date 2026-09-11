@@ -27,7 +27,7 @@ helm install hcloud-operator shebanglabs/hcloud-operator \
 
 Images are built for `linux/amd64` and `linux/arm64`, run as an unprivileged
 user (uid 65532), ship an SBOM and SLSA provenance, and release tags are signed
-with cosign:
+with cosign (verify with cosign v3 or later):
 
 ```bash
 cosign verify docker.io/shebanglabs/hcloud-operator:1.0.0 \
