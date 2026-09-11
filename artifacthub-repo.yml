@@ -1,0 +1,7 @@
+# Published to the gh-pages branch next to index.yaml. Lets Artifact Hub verify
+# the publisher and list the owners. Set repositoryID after adding the
+# repository at https://artifacthub.io/control-panel/repositories.
+# repositoryID: <uuid from Artifact Hub>
+owners:
+  - name: Shebang Labs
+    email: security@shebanglabs.io
