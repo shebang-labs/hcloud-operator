@@ -1,6 +1,6 @@
 apiVersion: v1
 entries:
-  hetzner-server-controller:
+  hcloud-operator:
   - annotations:
       artifacthub.io/category: integration-delivery
       artifacthub.io/changes: |
@@ -83,27 +83,27 @@ entries:
             serverRef:
               name: web-01
       artifacthub.io/images: |
-        - name: hetzner-server-controller
-          image: docker.io/shebanglabs/hetzner-server-controller:1.0.0
+        - name: hcloud-operator
+          image: docker.io/shebanglabs/hcloud-operator:1.0.0
       artifacthub.io/license: MIT
       artifacthub.io/links: |
         - name: Documentation
-          url: https://github.com/shebang-labs/hetzner-server-controller#readme
+          url: https://github.com/shebang-labs/hcloud-operator#readme
         - name: Container image
-          url: https://hub.docker.com/r/shebanglabs/hetzner-server-controller
+          url: https://hub.docker.com/r/shebanglabs/hcloud-operator
         - name: Examples
-          url: https://github.com/shebang-labs/hetzner-server-controller/tree/main/examples
+          url: https://github.com/shebang-labs/hcloud-operator/tree/main/examples
       artifacthub.io/operator: "true"
       artifacthub.io/operatorCapabilities: Full Lifecycle
     apiVersion: v2
     appVersion: 1.0.0
-    created: "2026-09-11T14:00:39.174709192Z"
+    created: "2026-09-11T20:41:18.125782401Z"
     description: 'A Kubernetes operator that manages Hetzner Cloud declaratively:
       servers, volumes, networks, firewalls, load balancers, floating and primary
       IPs, certificates, images, SSH keys and placement groups as custom resources.'
-    digest: 40af21ad401f146429bfcfe945d39a23c99bed8bef1b03b38a5ddfc917a79175
-    home: https://github.com/shebang-labs/hetzner-server-controller
-    icon: https://raw.githubusercontent.com/shebang-labs/hetzner-server-controller/main/docs/assets/icon.svg
+    digest: 07bc1e1a80d53aef79904357a96e84debb6bf29f0090ef4dd14f03b77339b882
+    home: https://github.com/shebang-labs/hcloud-operator
+    icon: https://raw.githubusercontent.com/shebang-labs/hcloud-operator/main/docs/assets/icon.svg
     keywords:
     - hetzner
     - hcloud
@@ -115,11 +115,11 @@ entries:
     maintainers:
     - name: Shebang Labs
       url: https://github.com/shebang-labs
-    name: hetzner-server-controller
+    name: hcloud-operator
     sources:
-    - https://github.com/shebang-labs/hetzner-server-controller
+    - https://github.com/shebang-labs/hcloud-operator
     type: application
     urls:
-    - https://github.com/shebang-labs/hetzner-server-controller/releases/download/v1.0.0/hetzner-server-controller-1.0.0.tgz
+    - https://github.com/shebang-labs/hcloud-operator/releases/download/v1.0.0/hcloud-operator-1.0.0.tgz
     version: 1.0.0
-generated: "2026-09-11T14:00:39.172438809Z"
+generated: "2026-09-11T20:41:18.120717313Z"
