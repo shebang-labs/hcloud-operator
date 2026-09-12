@@ -62,7 +62,6 @@ spec:
               type: object
             spec:
               type: object
-              required: []
               properties:
                 rules:
                   type: array

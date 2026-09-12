@@ -12,6 +12,13 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+### Fixed
+
+- The `HetznerCertificate`, `HetznerFirewall` and `HetznerPlacementGroup` CRDs
+  no longer declare an empty `required: []` on their spec. The API server drops
+  the empty list on admission, so a GitOps controller comparing the chart with
+  the cluster (ArgoCD) reported those three CRDs `OutOfSync` after every sync.
+
 ## [1.1.1] — 2026-09-12
 
 ### Fixed

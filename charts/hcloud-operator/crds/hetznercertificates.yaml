@@ -65,7 +65,6 @@ spec:
               type: object
             spec:
               type: object
-              required: []
               properties:
                 type:
                   type: string
