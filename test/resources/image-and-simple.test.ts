@@ -230,6 +230,26 @@ describe('HetznerImage', () => {
         expect(resource.status?.phase).toBe('Creating');
     });
 
+    it('records the fractional size Hetzner reports for a finished snapshot', async () => {
+        // image_size is a decimal number of GB (48.36). The CRD must accept it as
+        // such: with an integer schema the status write is rejected with 422 and
+        // the snapshot, although available, never becomes Ready.
+        await aServer();
+        const harnessImages = images();
+        const resource = image();
+        await harnessImages.settle(resource);
+
+        const stored = snapshot();
+        if (stored) {
+            stored.status = 'available';
+            stored.image_size = 48.36;
+        }
+        await harnessImages.once(resource);
+
+        expect(resource.status?.imageSize).toBe(48.36);
+        expect(resource.status?.phase).toBe('Ready');
+    });
+
     it('updates the description in place', async () => {
         await aServer();
         const harnessImages = images();

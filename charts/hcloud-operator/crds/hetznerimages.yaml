@@ -28,7 +28,7 @@ spec:
         status: {}
       additionalPrinterColumns:
         - name: Size
-          type: integer
+          type: number
           jsonPath: .status.imageSize
         - name: From
           type: integer
@@ -132,8 +132,11 @@ spec:
                 type:
                   type: string
                 imageSize:
-                  type: integer
-                  description: Billed size in GB.
+                  type: number
+                  description: >-
+                    Billed size in GB. A decimal: Hetzner reports image_size with a fractional
+                    part (48.36), and an integer schema made the API server reject every status
+                    write for a finished snapshot, leaving the object Creating forever.
                 diskSize:
                   type: integer
                 architecture:

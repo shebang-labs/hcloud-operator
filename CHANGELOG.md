@@ -12,6 +12,18 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-09-12
+
+### Fixed
+
+- `HetznerImage.status.imageSize` is now a `number`. Hetzner reports
+  `image_size` with a fractional part (`48.36` GB); the integer schema made the
+  API server reject every status write for a finished snapshot with 422, so the
+  object stayed `Creating` (`Synced=False ReconcileError: HTTP-Code: 422`)
+  although the snapshot existed and was available. Apply the CRDs before
+  upgrading; a `HetznerImage` already stuck this way recovers on its next
+  reconcile.
+
 ## [1.1.0] — 2026-09-11
 
 ### Added

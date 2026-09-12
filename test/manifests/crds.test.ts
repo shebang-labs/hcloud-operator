@@ -275,6 +275,21 @@ describe('the CRD files', () => {
     });
 });
 
+describe('HetznerImage specifically', () => {
+    const crd = crds.find((entry) => entry.spec.names.kind === 'HetznerImage') as Crd;
+    const status = () =>
+        crd.spec.versions[0]?.schema.openAPIV3Schema.properties?.status?.properties ?? {};
+
+    it('accepts the decimal image size Hetzner reports', () => {
+        // image_size comes back as e.g. 48.36 GB. Declared as integer, the API
+        // server rejected the status write with 422 for every finished snapshot
+        // and the object stayed Creating although the image existed.
+        expect(status().imageSize?.type).toBe('number');
+        const size = crd.spec.versions[0]?.additionalPrinterColumns?.find((c) => c.name === 'Size');
+        expect((size as { type?: string } | undefined)?.type).toBe('number');
+    });
+});
+
 describe('HetznerServer specifically', () => {
     const crd = crds.find((entry) => entry.spec.names.kind === 'HetznerServer');
     const spec = crd?.spec.versions[0]?.schema.openAPIV3Schema.properties?.spec;
