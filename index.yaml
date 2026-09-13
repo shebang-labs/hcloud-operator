@@ -5,6 +5,127 @@ entries:
       artifacthub.io/category: integration-delivery
       artifacthub.io/changes: |
         - kind: fixed
+          description: Three CRDs no longer ship an empty required list the API server discards.
+      artifacthub.io/crds: |
+        - kind: HetznerServer
+          version: v1alpha1
+          name: hetznerservers.hcloud.shebanglabs.io
+          displayName: Hetzner Server
+          description: A Hetzner Cloud server, including power state, resize, rebuild, backups, rescue, ISO, reverse DNS, networks, placement group and protection.
+        - kind: HetznerVolume
+          version: v1alpha1
+          name: hetznervolumes.hcloud.shebanglabs.io
+          displayName: Hetzner Volume
+          description: A block storage volume, its size, filesystem and attachment.
+        - kind: HetznerNetwork
+          version: v1alpha1
+          name: hetznernetworks.hcloud.shebanglabs.io
+          displayName: Hetzner Network
+          description: A private network with subnets and routes.
+        - kind: HetznerFirewall
+          version: v1alpha1
+          name: hetznerfirewalls.hcloud.shebanglabs.io
+          displayName: Hetzner Firewall
+          description: Firewall rules applied to servers or label selectors.
+        - kind: HetznerLoadBalancer
+          version: v1alpha1
+          name: hetznerloadbalancers.hcloud.shebanglabs.io
+          displayName: Hetzner Load Balancer
+          description: A load balancer with services, health checks, TLS and targets.
+        - kind: HetznerFloatingIP
+          version: v1alpha1
+          name: hetznerfloatingips.hcloud.shebanglabs.io
+          displayName: Hetzner Floating IP
+          description: A floating IP, its assignment and reverse DNS.
+        - kind: HetznerPrimaryIP
+          version: v1alpha1
+          name: hetznerprimaryips.hcloud.shebanglabs.io
+          displayName: Hetzner Primary IP
+          description: A primary IP, its assignment, auto-delete and reverse DNS.
+        - kind: HetznerSSHKey
+          version: v1alpha1
+          name: hetznersshkeys.hcloud.shebanglabs.io
+          displayName: Hetzner SSH Key
+          description: A public SSH key uploaded to the project.
+        - kind: HetznerPlacementGroup
+          version: v1alpha1
+          name: hetznerplacementgroups.hcloud.shebanglabs.io
+          displayName: Hetzner Placement Group
+          description: A spread placement group.
+        - kind: HetznerCertificate
+          version: v1alpha1
+          name: hetznercertificates.hcloud.shebanglabs.io
+          displayName: Hetzner Certificate
+          description: An uploaded or Hetzner-managed TLS certificate.
+        - kind: HetznerImage
+          version: v1alpha1
+          name: hetznerimages.hcloud.shebanglabs.io
+          displayName: Hetzner Image
+          description: A snapshot of a server's disk.
+      artifacthub.io/crdsExamples: |
+        - apiVersion: hcloud.shebanglabs.io/v1alpha1
+          kind: HetznerServer
+          metadata:
+            name: web-01
+          spec:
+            serverType: cpx21
+            image: ubuntu-24.04
+            location: nbg1
+            powerState: Running
+            backups: true
+        - apiVersion: hcloud.shebanglabs.io/v1alpha1
+          kind: HetznerVolume
+          metadata:
+            name: data
+          spec:
+            size: 50
+            format: ext4
+            serverRef:
+              name: web-01
+      artifacthub.io/images: |
+        - name: hcloud-operator
+          image: docker.io/shebanglabs/hcloud-operator:1.1.2
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/shebang-labs/hcloud-operator#readme
+        - name: Container image
+          url: https://hub.docker.com/r/shebanglabs/hcloud-operator
+        - name: Examples
+          url: https://github.com/shebang-labs/hcloud-operator/tree/main/examples
+      artifacthub.io/operator: "true"
+      artifacthub.io/operatorCapabilities: Full Lifecycle
+    apiVersion: v2
+    appVersion: 1.1.2
+    created: "2026-09-13T14:01:18.13843239Z"
+    description: 'A Kubernetes operator that manages Hetzner Cloud declaratively:
+      servers, volumes, networks, firewalls, load balancers, floating and primary
+      IPs, certificates, images, SSH keys and placement groups as custom resources.'
+    digest: 4f958f0101370e66830198fbeded7f0ea8794ae3ac82c911a8537c7d312011fc
+    home: https://github.com/shebang-labs/hcloud-operator
+    icon: https://raw.githubusercontent.com/shebang-labs/hcloud-operator/main/docs/assets/icon.svg
+    keywords:
+    - hetzner
+    - hcloud
+    - operator
+    - controller
+    - infrastructure
+    - crd
+    kubeVersion: '>=1.25.0-0'
+    maintainers:
+    - name: Shebang Labs
+      url: https://github.com/shebang-labs
+    name: hcloud-operator
+    sources:
+    - https://github.com/shebang-labs/hcloud-operator
+    type: application
+    urls:
+    - https://github.com/shebang-labs/hcloud-operator/releases/download/v1.1.2/hcloud-operator-1.1.2.tgz
+    version: 1.1.2
+  - annotations:
+      artifacthub.io/category: integration-delivery
+      artifacthub.io/changes: |
+        - kind: fixed
           description: HetznerImage.status.imageSize accepts the decimal size Hetzner reports; finished snapshots no longer stay Creating with a 422.
       artifacthub.io/crds: |
         - kind: HetznerServer
@@ -364,4 +485,4 @@ entries:
     urls:
     - https://github.com/shebang-labs/hcloud-operator/releases/download/v1.0.0/hcloud-operator-1.0.0.tgz
     version: 1.0.0
-generated: "2026-09-12T22:26:56.640768904Z"
+generated: "2026-09-13T14:01:18.138449732Z"
