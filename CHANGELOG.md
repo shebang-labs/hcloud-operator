@@ -12,6 +12,8 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-09-13
+
 ### Fixed
 
 - The `HetznerCertificate`, `HetznerFirewall` and `HetznerPlacementGroup` CRDs
@@ -85,6 +87,8 @@ First public release.
 - Multi-arch images (`linux/amd64`, `linux/arm64`) on Docker Hub, signed with
   cosign and shipped with an SBOM and provenance.
 
-[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.2
+[1.1.1]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.1
 [1.1.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.0
 [1.0.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.0.0

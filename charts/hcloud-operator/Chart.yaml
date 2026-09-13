@@ -7,8 +7,8 @@ description: >-
 type: application
 # The chart and the application are versioned together: chart 1.2.3 always
 # ships image 1.2.3. One number for users to reason about.
-version: 1.1.1
-appVersion: "1.1.1"
+version: 1.1.2
+appVersion: "1.1.2"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/shebang-labs/hcloud-operator
 icon: https://raw.githubusercontent.com/shebang-labs/hcloud-operator/main/docs/assets/icon.svg
@@ -38,7 +38,7 @@ annotations:
       url: https://github.com/shebang-labs/hcloud-operator/tree/main/examples
   artifacthub.io/images: |
     - name: hcloud-operator
-      image: docker.io/shebanglabs/hcloud-operator:1.1.1
+      image: docker.io/shebanglabs/hcloud-operator:1.1.2
   artifacthub.io/crds: |
     - kind: HetznerServer
       version: v1alpha1
@@ -117,4 +117,4 @@ annotations:
           name: web-01
   artifacthub.io/changes: |
     - kind: fixed
-      description: HetznerImage.status.imageSize accepts the decimal size Hetzner reports; finished snapshots no longer stay Creating with a 422.
+      description: Three CRDs no longer ship an empty required list the API server discards.
