@@ -57,7 +57,9 @@ function only(): Record<string, unknown> {
 
 describe('validation', () => {
     it.each([
-        [{ serverType: '' }, /spec.serverType is required/],
+        [{ serverType: '' }, /one of spec.serverTypes or spec.serverType is required/],
+        [{ serverType: undefined, serverTypes: [] }, /is required/],
+        [{ serverType: 'cx22', serverTypes: ['cx42'] }, /mutually exclusive/],
         [{ image: '' }, /spec.image is required/],
         [{ location: undefined }, /one of spec.location or spec.datacenter/],
         [{ location: 'nbg1', datacenter: 'nbg1-dc3' }, /mutually exclusive/],
@@ -71,6 +73,19 @@ describe('validation', () => {
 
         expect(resource.status?.message).toMatch(expected);
         expect(harness.api.all('servers')).toHaveLength(0);
+    });
+
+    it('accepts serverTypes in place of serverType', async () => {
+        await servers.settle(server({ serverType: undefined, serverTypes: ['cx42'] }));
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({ server_type: 'cx42' });
+    });
+
+    it('creates the first entry when Hetzner has capacity for it', async () => {
+        // The rest of the list is a fallback, not a menu: nothing may reorder it.
+        await servers.settle(server({ serverType: undefined, serverTypes: ['cx42', 'cx22'] }));
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({ server_type: 'cx42' });
     });
 
     it('refuses a server that would have no address at all', async () => {

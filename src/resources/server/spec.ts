@@ -71,10 +71,21 @@ export interface PublicNetSpec {
 
 export interface HetznerServerSpec extends CommonSpec {
     /**
-     * Hetzner server type, e.g. "cpx21". Changing it resizes the server, which
-     * requires a reboot — so it only happens with `allowDowntime: true`.
+     * Hetzner server type, e.g. "cpx21".
+     *
+     * @deprecated Use `serverTypes`, which reads this as a single-entry list.
+     * Kept for compatibility with every chart already installed; it goes in a
+     * future major version.
      */
-    serverType: string;
+    serverType?: string;
+    /**
+     * Hetzner server types to try in order, e.g. `["cx53", "cx43"]`.
+     *
+     * Only the *creation* walks the list, and only when Hetzner says it has no
+     * capacity. Once a server exists, whichever entry it landed on is where it
+     * stays: see `desiredServerTypes` for why nothing pulls it back up.
+     */
+    serverTypes?: string[];
     /**
      * Image name or id, e.g. "ubuntu-24.04". Changing it rebuilds the server,
      * which erases its disk — so it only happens with `allowDataLoss: true`.
@@ -178,6 +189,31 @@ export const serverDescriptor: ResourceDescriptor = {
     plural: 'hetznerservers',
     shortName: 'hsrv',
 };
+
+/**
+ * The server types this spec will accept, most preferred first.
+ *
+ * One list whatever the user wrote, so nothing downstream has to know that the
+ * singular field still exists. Entries are trimmed because a stray space in a
+ * YAML list is invisible in review and would be sent to Hetzner verbatim.
+ *
+ * The ordering carries the whole policy. The first entry is what a fresh server
+ * is created as; a later one is reached only when Hetzner has no capacity for
+ * the entries before it. After that the position in the list stops mattering,
+ * and deliberately so: moving a server up the list means a resize, a resize
+ * that grows the disk cannot be undone, and Hetzner cannot shrink a disk at
+ * all. Treating a smaller-than-preferred server as drift would therefore push
+ * towards a one-way, downtime-taking change that nobody asked for, to fix a
+ * node that is working.
+ */
+export function desiredServerTypes(spec: HetznerServerSpec): string[] {
+    const declared = spec.serverTypes?.length ? spec.serverTypes : listOf(spec.serverType);
+    return declared.map((entry) => entry.trim()).filter(Boolean);
+}
+
+function listOf(value: string | undefined): string[] {
+    return value ? [value] : [];
+}
 
 /** Hetzner states that mean "still working on it". */
 export const TRANSITIONAL_STATES = new Set([

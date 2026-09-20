@@ -45,6 +45,7 @@ import {
     systemClock,
 } from './lifecycle.js';
 import {
+    desiredServerTypes,
     type HetznerServerSpec,
     type HetznerServerStatus,
     serverDescriptor,
@@ -79,8 +80,16 @@ export function createServerAdapter(
 
         validate(spec) {
             const problems: string[] = [];
-            if (!spec.serverType) {
-                problems.push('spec.serverType is required, e.g. "cpx21"');
+            if (spec.serverType && spec.serverTypes?.length) {
+                problems.push(
+                    'spec.serverType and spec.serverTypes are mutually exclusive; ' +
+                        'serverTypes replaces it, and a bare serverType is read as its first entry',
+                );
+            } else if (desiredServerTypes(spec).length === 0) {
+                problems.push(
+                    'one of spec.serverTypes or spec.serverType is required, e.g. ' +
+                        'serverTypes: ["cx53", "cx43"]',
+                );
             }
             if (!spec.image) {
                 problems.push('spec.image is required, e.g. "ubuntu-24.04"');
@@ -146,10 +155,11 @@ export function createServerAdapter(
                   )
                 : undefined;
             const userData = await resolveUserData(secrets, context.namespace, spec);
+            const serverType = preferredServerType(spec);
 
             return api.create({
                 name: context.hetznerName,
-                serverType: spec.serverType,
+                serverType,
                 image: spec.image,
                 ...(spec.datacenter
                     ? { datacenter: spec.datacenter }
@@ -345,6 +355,22 @@ export function createServerAdapter(
             );
         },
     };
+}
+
+/**
+ * The type a fresh server is created as.
+ *
+ * `validate()` guarantees the list is non-empty and the admission webhook
+ * rejects an empty one at apply time, so the throw is unreachable in practice.
+ * It exists because the alternative is a non-null assertion, and this one says
+ * what went wrong if the invariant is ever broken by a new caller.
+ */
+function preferredServerType(spec: HetznerServerSpec): string {
+    const preferred = desiredServerTypes(spec)[0];
+    if (!preferred) {
+        throw new Error('spec declares no server type; set spec.serverTypes');
+    }
+    return preferred;
 }
 
 /**

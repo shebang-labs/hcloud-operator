@@ -19,6 +19,7 @@ import type { Server } from '../../hcloud/types.js';
 import type { ChangeLog } from '../common.js';
 import {
     DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+    desiredServerTypes,
     type HetznerServerSpec,
     type HetznerServerStatus,
     type PowerState,
@@ -72,8 +73,10 @@ export async function convergeServerType(
     clock: Clock = systemClock,
 ): Promise<StepResult> {
     const { spec } = context;
+    const wanted = desiredServerTypes(spec);
+    const target = wanted[0];
     const actualType = remote.server_type?.name;
-    if (!actualType || actualType === spec.serverType) {
+    if (!actualType || !target || actualType === target) {
         // Nothing to do. If we were mid-resize, the operation is complete.
         return context.resource.status?.pendingOperation === 'Resizing'
             ? { statusPatch: { pendingOperation: null } }
@@ -83,7 +86,7 @@ export async function convergeServerType(
     if (!spec.allowDowntime) {
         return {
             blocked:
-                `spec.serverType is "${spec.serverType}" but the server runs "${actualType}". ` +
+                `spec asks for "${target}" but the server runs "${actualType}". ` +
                 'Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.',
         };
     }
@@ -92,11 +95,11 @@ export async function convergeServerType(
         case 'off':
             context.logger.info('Changing the server type', {
                 from: actualType,
-                to: spec.serverType,
+                to: target,
                 upgradeDisk: spec.upgradeDisk ?? false,
             });
-            await api.changeType(remote.id, spec.serverType, spec.upgradeDisk ?? false);
-            log.record(`resized from ${actualType} to ${spec.serverType}`);
+            await api.changeType(remote.id, target, spec.upgradeDisk ?? false);
+            log.record(`resized from ${actualType} to ${target}`);
             // Power the server back on only if we are the ones who stopped it
             // and the spec still asks for it to be running.
             if (
