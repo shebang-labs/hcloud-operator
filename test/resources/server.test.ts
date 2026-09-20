@@ -143,6 +143,24 @@ describe('when Hetzner has no capacity', () => {
         expect(resource.status?.serverType).toBe('cpx21');
     });
 
+    it('records what it placed and why, as a Normal event', async () => {
+        noCapacity();
+
+        await servers.settle(server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21'] }));
+
+        const fallback = harness.events.find((e) => e.reason === 'ServerTypeFallback');
+        expect(fallback?.message).toMatch(/no capacity for cpx31 in nbg1; placed cpx21 instead/);
+        // Falling back is the behaviour that was asked for, and the node works.
+        // A Warning here would colour every review app's event stream red.
+        expect(fallback?.type).toBe('Normal');
+    });
+
+    it('says nothing when the preferred type placed on the first try', async () => {
+        await servers.settle(server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21'] }));
+
+        expect(harness.events.some((e) => e.reason === 'ServerTypeFallback')).toBe(false);
+    });
+
     it('walks the whole list rather than stopping at the second entry', async () => {
         noCapacity(2);
 

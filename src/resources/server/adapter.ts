@@ -396,7 +396,22 @@ async function createWithFallback(
 
     for (const serverType of serverTypes) {
         try {
-            return await attempt(serverType);
+            const created = await attempt(serverType);
+            if (unavailable.length > 0) {
+                // Normal, not Warning: falling back is the behaviour that was
+                // asked for, and a working node is not a problem. It is emitted
+                // once, at placement, purely so "why is this node smaller than
+                // the others?" has an answer months later without digging
+                // through operator logs.
+                context.events.normal(
+                    context.resource,
+                    'ServerTypeFallback',
+                    `Hetzner had no capacity for ${unavailable.join(', ')} in ` +
+                        `${context.spec.datacenter ?? context.spec.location}; ` +
+                        `placed ${serverType} instead`,
+                );
+            }
+            return created;
         } catch (error) {
             if (!(error instanceof HetznerApiError) || !isCapacityError(error)) {
                 throw error;
