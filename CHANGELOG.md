@@ -12,6 +12,17 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+### Fixed
+
+- The controller no longer reconciles on its own status writes. Each write came
+  back through the watch as an event, and while a reconcile was running that
+  cancelled the delay the work queue was about to apply — so the exponential
+  backoff was never reached. A `HetznerServer` that Hetzner could not place for
+  lack of capacity retried `POST /servers` for 31 minutes without backing off,
+  and an object waiting on a missing reference retried roughly every 1.2s
+  instead of every 15s. The watch now enqueues only when `metadata.generation`
+  changes; drift in Hetzner is still picked up by the periodic resync.
+
 ## [1.1.2] — 2026-09-13
 
 ### Fixed
