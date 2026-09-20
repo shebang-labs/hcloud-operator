@@ -95,13 +95,15 @@ the Hetzner client classifies as permanent (a 4xx that will not change until
 the spec does) are not retried on the backoff schedule; the periodic resync
 still re-checks them.
 
-The watch only enqueues when `metadata.generation` moves. Every CRD declares
-`subresources.status`, so that covers spec changes and deletions but not the
-status the engine itself writes on every pass — which would otherwise come back
-as an event, mark the running key dirty, and cancel the delay the queue was
-about to apply. Anything that changes without the generation moving is therefore
-invisible to the watch and is picked up by the resync instead: drift in Hetzner,
-and our own finalizer being added.
+A watch `update` only enqueues when `metadata.generation` moves; an `add` always
+does, because the informer emits one only for an object it has no copy of. Every
+CRD declares `subresources.status`, so the generation covers spec changes and
+deletions but not the status the engine itself writes on every pass — which
+would otherwise come back as an event, mark the running key dirty, and cancel
+the delay the queue was about to apply. Anything that changes without the
+generation moving is therefore invisible to the watch and has to be picked up
+some other way: drift in Hetzner by the resync, and our own finalizer by the
+zero-delay requeue the engine returns straight after adding it.
 
 ## Hetzner client
 
