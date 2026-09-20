@@ -45,6 +45,8 @@ let api: FakeApiServer;
 let controller: ResourceController<CommonSpec, CommonStatus, Labelled>;
 /** Keys the engine was asked to reconcile, in order. */
 let reconciled: string[];
+/** Set by a test to hold every reconcile open until it resolves. */
+let holdReconcile: Promise<void> | undefined;
 
 /** An adapter that records what it was asked to do and touches nothing. */
 function recordingEngine() {
@@ -82,6 +84,7 @@ function recordingEngine() {
     // controller routes the right keys to it.
     vi.spyOn(engine, 'reconcile').mockImplementation(async (namespace, name) => {
         reconciled.push(`${namespace}/${name}`);
+        await holdReconcile;
         return {};
     });
 
@@ -114,6 +117,7 @@ function build(overrides: Partial<ConstructorParameters<typeof ResourceControlle
 
 beforeEach(async () => {
     reconciled = [];
+    holdReconcile = undefined;
     api = new FakeApiServer({
         group: GROUP,
         version: VERSION,
@@ -261,6 +265,32 @@ describe('watch events', () => {
         api.emit('MODIFIED', deleting);
 
         await eventually(() => reconciled.includes('default/web-01'));
+    });
+
+    it('still reconciles again for a spec change that lands mid-reconcile', async () => {
+        // The one event the queue's dirty/running path exists for. The filter
+        // sits in front of that path, so it has to let this through: a
+        // generation that moves while the key is already running must still
+        // mark it dirty, and the queue must run it again the moment the
+        // current pass returns rather than waiting for the resync.
+        let release = () => {};
+        holdReconcile = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.length === 1);
+
+        // The user edits the spec while the first pass is still running.
+        api.emit('MODIFIED', sshKeyAt('web-01', 5));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(reconciled).toHaveLength(1);
+
+        holdReconcile = undefined;
+        release();
+
+        await eventually(() => reconciled.length === 2);
+        expect(reconciled).toEqual(['default/web-01', 'default/web-01']);
     });
 
     it('collapses a burst of events for one object into few reconciles', async () => {
