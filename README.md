@@ -222,7 +222,10 @@ in the process can never be shrunk again. Only a type that has left the list
 entirely counts as drift, and that still needs `allowDowntime`.
 
 `serverType:` (singular) still works and means a one-entry list. It is
-deprecated and goes in a future major version.
+deprecated and goes in a future major version. Setting both fields is rejected —
+`serverTypes` replaces it rather than extending it — and the CRD schema cannot
+express that, so without the admission webhook the rejection arrives as a
+`Synced: False` condition instead of at apply time.
 
 ## Adopting what you already have
 
