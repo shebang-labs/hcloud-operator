@@ -259,7 +259,28 @@ export class ResourceController<
             listFn,
         );
 
-        const enqueue = (event: string) => (resource: ManagedResource<TSpec, TStatus>) => {
+        const enqueue = (event: string, resource: ManagedResource<TSpec, TStatus>): void => {
+            const key = resourceKey(resource);
+            const generation = resource.metadata?.generation;
+            if (generation !== undefined) {
+                this.seenGenerations.set(key, generation);
+            }
+            this.logger.debug('Received watch event', { event, resource: key });
+            this.queue.add(key);
+        };
+
+        // An `add` is never filtered. The informer only emits one for an object
+        // its cache has no copy of, which means this process has not acted on
+        // the object in this informer's lifetime — the startup list, and a
+        // relist that brought something back. Reconciling then is the whole
+        // reason a Pod restart is safe, and the recorded generation is a
+        // process-lifetime memory that can outlive an informer, so consulting
+        // it here would let a stale entry drop the one event that matters.
+        informer.on('add', (resource: ManagedResource<TSpec, TStatus>) => {
+            enqueue('add', resource);
+        });
+
+        informer.on('update', (resource: ManagedResource<TSpec, TStatus>) => {
             const key = resourceKey(resource);
             const generation = resource.metadata?.generation;
 
@@ -285,22 +306,16 @@ export class ResourceController<
             // here; the resync timer is what notices it.
             if (generation !== undefined && this.seenGenerations.get(key) === generation) {
                 this.logger.debug('Ignoring a watch event that did not change the spec', {
-                    event,
+                    event: 'update',
                     resource: key,
                     generation,
                 });
                 return;
             }
-            if (generation !== undefined) {
-                this.seenGenerations.set(key, generation);
-            }
 
-            this.logger.debug('Received watch event', { event, resource: key });
-            this.queue.add(key);
-        };
+            enqueue('update', resource);
+        });
 
-        informer.on('add', enqueue('add'));
-        informer.on('update', enqueue('update'));
         informer.on('delete', (resource: ManagedResource<TSpec, TStatus>) => {
             // The object is gone for good, so drop its retry-backoff counter.
             // Without this the queue keeps one entry per object that ever failed
