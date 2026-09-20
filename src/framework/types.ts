@@ -26,6 +26,7 @@ import type {
     Phase,
     ResourceDescriptor,
 } from '../kube/api.js';
+import type { EventRecorder } from '../kube/events.js';
 import type { Logger } from '../observability/logger.js';
 import type { ReferenceResolver } from './references.js';
 
@@ -44,6 +45,15 @@ export interface ReconcileContext<TSpec extends CommonSpec, TStatus extends Comm
     readonly hetznerName: string;
     /** Resolves references to other kinds into Hetzner ids. */
     readonly refs: ReferenceResolver;
+    /**
+     * Records Kubernetes Events against this object.
+     *
+     * The engine emits the lifecycle ones itself (Created, Updated, Deleting).
+     * This is for what only an adapter can know — a choice it made that the
+     * spec permitted but did not spell out, which a user would otherwise have
+     * to read the operator's logs to discover.
+     */
+    readonly events: EventRecorder;
 }
 
 /** The pure mapping from a Hetzner object to Kubernetes status. */
