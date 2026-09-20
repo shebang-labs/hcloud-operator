@@ -95,6 +95,14 @@ the Hetzner client classifies as permanent (a 4xx that will not change until
 the spec does) are not retried on the backoff schedule; the periodic resync
 still re-checks them.
 
+The watch only enqueues when `metadata.generation` moves. Every CRD declares
+`subresources.status`, so that covers spec changes and deletions but not the
+status the engine itself writes on every pass — which would otherwise come back
+as an event, mark the running key dirty, and cancel the delay the queue was
+about to apply. Anything that changes without the generation moving is therefore
+invisible to the watch and is picked up by the resync instead: drift in Hetzner,
+and our own finalizer being added.
+
 ## Hetzner client
 
 - Nearly every mutating call returns an `Action` still `running`. The client
