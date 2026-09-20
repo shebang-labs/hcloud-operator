@@ -9,6 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { HetznerApiError } from '../../src/hcloud/errors.js';
 import type { Server } from '../../src/hcloud/types.js';
 import { CONDITION_READY, CONDITION_SYNCED } from '../../src/kube/conditions.js';
 import type { SecretReader } from '../../src/kube/secrets.js';
@@ -105,6 +106,86 @@ describe('validation', () => {
         );
 
         expect(harness.api.all('servers')).toHaveLength(1);
+    });
+});
+
+describe('when Hetzner has no capacity', () => {
+    /** The 412 Hetzner answers with when a type cannot be placed. */
+    function noCapacity(times = 1) {
+        harness.api.failNext({
+            match: 'POST /servers',
+            times,
+            error: new HetznerApiError({
+                status: 412,
+                code: 'resource_unavailable',
+                message: 'error during placement',
+                retryable: false,
+            }),
+        });
+    }
+
+    it('falls through to the next type in the list', async () => {
+        noCapacity();
+
+        await servers.settle(server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21'] }));
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({ server_type: 'cpx21' });
+        expect(harness.api.all('servers')).toHaveLength(1);
+    });
+
+    it('records the type it actually placed, not the one that was asked for', async () => {
+        noCapacity();
+
+        const resource = server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21'] });
+        await servers.settle(resource);
+
+        // Otherwise "why is this node smaller?" has no answer anywhere.
+        expect(resource.status?.serverType).toBe('cpx21');
+    });
+
+    it('walks the whole list rather than stopping at the second entry', async () => {
+        noCapacity(2);
+
+        await servers.settle(
+            server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21', 'cx22'] }),
+        );
+
+        expect(harness.api.lastBody('POST /servers')).toMatchObject({ server_type: 'cx22' });
+    });
+
+    it('asks to be retried when every listed type is unavailable', async () => {
+        noCapacity(5);
+
+        const resource = server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21'] });
+        const error = await servers.once(resource).catch((thrown: unknown) => thrown);
+
+        expect(error).toBeInstanceOf(HetznerApiError);
+        expect((error as HetznerApiError).message).toMatch(/no capacity for any of cpx31, cpx21/);
+        // Capacity frees up on its own, so giving up permanently would strand
+        // the app; the queue's backoff is what keeps the retry cheap.
+        expect((error as HetznerApiError).retryable).toBe(true);
+        expect(harness.api.countRequests('POST /servers')).toBe(2);
+        expect(harness.api.all('servers')).toHaveLength(0);
+    });
+
+    it('does not walk the list for an error that is not about capacity', async () => {
+        // A bad image or a missing key fails the same way on every entry, so
+        // trying them all turns one clear error into a pile of identical ones.
+        harness.api.failNext({
+            match: 'POST /servers',
+            times: 5,
+            error: new HetznerApiError({
+                status: 404,
+                code: 'not_found',
+                message: 'image not found',
+                retryable: false,
+            }),
+        });
+
+        const resource = server({ serverType: undefined, serverTypes: ['cpx31', 'cpx21'] });
+
+        await expect(servers.once(resource)).rejects.toThrow(/image not found/);
+        expect(harness.api.countRequests('POST /servers')).toBe(1);
     });
 });
 
