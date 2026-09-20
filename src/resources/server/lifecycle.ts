@@ -64,6 +64,14 @@ export function desiredPowerState(spec: HetznerServerSpec): PowerState {
  * three-step dance: shut down, change the type, power back on. `pendingOperation`
  * remembers that the operator — not the user — powered the server off, so it
  * knows to start it again afterwards.
+ *
+ * Any type the spec lists counts as in sync, not just the first. A server that
+ * fell back to a smaller type because Hetzner had no capacity for the preferred
+ * one is a server that is working, and pulling it back up the list later would
+ * mean an unrequested resize: downtime for a node nobody complained about, and
+ * a disk that cannot be shrunk again if it grows. Only a type that has left the
+ * list entirely is drift — which takes a deliberate edit, and still needs
+ * `allowDowntime` before anything happens.
  */
 export async function convergeServerType(
     api: ServerApi,
@@ -74,9 +82,10 @@ export async function convergeServerType(
 ): Promise<StepResult> {
     const { spec } = context;
     const wanted = desiredServerTypes(spec);
+    // The first entry is where a server the spec no longer covers is sent.
     const target = wanted[0];
     const actualType = remote.server_type?.name;
-    if (!actualType || !target || actualType === target) {
+    if (!actualType || !target || wanted.includes(actualType)) {
         // Nothing to do. If we were mid-resize, the operation is complete.
         return context.resource.status?.pendingOperation === 'Resizing'
             ? { statusPatch: { pendingOperation: null } }
@@ -86,7 +95,8 @@ export async function convergeServerType(
     if (!spec.allowDowntime) {
         return {
             blocked:
-                `spec asks for "${target}" but the server runs "${actualType}". ` +
+                `spec no longer lists "${actualType}", which the server runs; the nearest ` +
+                `listed type is "${target}". ` +
                 'Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.',
         };
     }
