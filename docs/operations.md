@@ -17,7 +17,7 @@ Events:
   Type     Reason         Age    From                       Message
   Normal   Created        4m12s  hcloud-operator  Created Hetzner HetznerServer 4711 (demo-web-01)
   Normal   Updated        3m58s  hcloud-operator  enabled daily backups
-  Warning  GuardRequired  22s    hcloud-operator  spec.serverType is "cpx31" but the server runs "cpx21". Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.
+  Warning  GuardRequired  22s    hcloud-operator  spec no longer lists "cpx21", which the server runs; the nearest listed type is "cpx31". Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.
 ```
 
 | Condition           | Meaning                                                                 |

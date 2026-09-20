@@ -186,9 +186,10 @@ Without its guard flag, a destructive change is **reported, not applied**: the
 ```
 $ kubectl describe hsrv web-01
 ...
-  Synced   False   GuardRequired   spec.serverType is "cpx31" but the server runs
-                                   "cpx21". Resizing powers the server off and back
-                                   on, so set spec.allowDowntime: true to apply it.
+  Synced   False   GuardRequired   spec no longer lists "cpx21", which the server
+                                   runs; the nearest listed type is "cpx31".
+                                   Resizing powers the server off and back on, so
+                                   set spec.allowDowntime: true to apply it.
 ```
 
 ## Adopting what you already have
