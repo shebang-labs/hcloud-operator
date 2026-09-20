@@ -12,6 +12,31 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+### Added
+
+- `HetznerServer.spec.serverTypes` takes an ordered list of server types and
+  creates the server as the first one Hetzner can place. Hetzner answers
+  `412 resource_unavailable` when a type has no capacity in a location, and
+  retrying does not help — one observed incident took 149 refusals across 31
+  minutes while the next size down placed on the first try. Only a capacity
+  error advances the list; any other failure stops on the first entry. When no
+  entry can be placed the failure is retryable, so the work queue backs off and
+  comes back. The type it landed on is reported in `status.serverType` and in a
+  one-off `Normal` `ServerTypeFallback` event.
+
+### Changed
+
+- A `HetznerServer` is in sync with *any* type listed in `spec.serverTypes`, not
+  only the first. A server that fell back to a smaller type is never resized
+  back up: a resize means downtime for a working node, and Hetzner cannot shrink
+  a disk that a resize grew. A type that has left the list entirely is still
+  drift and still needs `allowDowntime`.
+- `HetznerServer.spec.serverType` is deprecated in favour of `serverTypes` and
+  is read as a single-entry list. It keeps working and will be removed in a
+  future major version.
+- The `HetznerServer` CRD gains a field, so apply the CRDs before upgrading:
+  Helm installs them but never upgrades them. Existing objects are unaffected.
+
 ### Fixed
 
 - The controller no longer reconciles on its own status writes. Each write came
