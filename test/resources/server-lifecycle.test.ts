@@ -115,7 +115,10 @@ describe('a server that fell back to a smaller type', () => {
 
         await servers.settle(resource);
 
+        // Both halves matter: which type is the problem, and which one a
+        // resize would actually produce — the first entry, not a nearest fit.
         expect(resource.status?.message).toMatch(/no longer lists "cpx21"/);
+        expect(resource.status?.message).toMatch(/resized to "cpx31", the first type/);
         expect(
             servers.store.condition('default', resource.metadata?.name ?? '', CONDITION_SYNCED)
                 ?.status,

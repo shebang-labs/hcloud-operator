@@ -187,9 +187,10 @@ Without its guard flag, a destructive change is **reported, not applied**: the
 $ kubectl describe hsrv web-01
 ...
   Synced   False   GuardRequired   spec no longer lists "cpx21", which the server
-                                   runs; the nearest listed type is "cpx31".
-                                   Resizing powers the server off and back on, so
-                                   set spec.allowDowntime: true to apply it.
+                                   runs; it would be resized to "cpx31", the first
+                                   type the list does name. Resizing powers the
+                                   server off and back on, so set
+                                   spec.allowDowntime: true to apply it.
 ```
 
 ## Surviving a type Hetzner has run out of

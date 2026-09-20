@@ -95,8 +95,8 @@ export async function convergeServerType(
     if (!spec.allowDowntime) {
         return {
             blocked:
-                `spec no longer lists "${actualType}", which the server runs; the nearest ` +
-                `listed type is "${target}". ` +
+                `spec no longer lists "${actualType}", which the server runs; it would be ` +
+                `resized to "${target}", the first type the list does name. ` +
                 'Resizing powers the server off and back on, so set spec.allowDowntime: true to apply it.',
         };
     }
