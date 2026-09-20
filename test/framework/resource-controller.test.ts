@@ -34,6 +34,13 @@ function sshKey(name: string): AnyManagedResource {
     };
 }
 
+/** The same object at a known `metadata.generation`. */
+function sshKeyAt(name: string, generation: number): AnyManagedResource {
+    const resource = sshKey(name);
+    resource.metadata = { ...resource.metadata, generation };
+    return resource;
+}
+
 let api: FakeApiServer;
 let controller: ResourceController<CommonSpec, CommonStatus, Labelled>;
 /** Keys the engine was asked to reconcile, in order. */
@@ -210,6 +217,50 @@ describe('watch events', () => {
         // left to reconcile, and the queue only needs to drop its backoff state.
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(reconciled).not.toContain('default/web-01');
+    });
+
+    it('ignores an event that only changed the status', async () => {
+        // The engine writes status on every pass, and each write comes back as
+        // a MODIFIED event. Acting on it makes the operator wake itself up: the
+        // queue sees the key go dirty, treats that as "the spec changed", and
+        // drops the delay it was about to apply. That is the hot loop that made
+        // a server blocked on Hetzner capacity re-POST for half an hour.
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.includes('default/web-01'));
+        reconciled.length = 0;
+
+        // Same generation: the API server leaves it alone for a status write.
+        api.emit('MODIFIED', sshKeyAt('web-01', 4));
+
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(reconciled).not.toContain('default/web-01');
+    });
+
+    it('reconciles when the generation moves, which is what a spec change does', async () => {
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.includes('default/web-01'));
+        reconciled.length = 0;
+
+        api.emit('MODIFIED', sshKeyAt('web-01', 5));
+
+        await eventually(() => reconciled.includes('default/web-01'));
+    });
+
+    it('reconciles a deletion, which bumps the generation like a spec change', async () => {
+        // Losing this event would leave the finalizer in place and a paid
+        // server running, so it is worth pinning down rather than assuming.
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.includes('default/web-01'));
+        reconciled.length = 0;
+
+        const deleting = sshKeyAt('web-01', 5);
+        deleting.metadata = {
+            ...deleting.metadata,
+            deletionTimestamp: new Date().toISOString(),
+        };
+        api.emit('MODIFIED', deleting);
+
+        await eventually(() => reconciled.includes('default/web-01'));
     });
 
     it('collapses a burst of events for one object into few reconciles', async () => {
