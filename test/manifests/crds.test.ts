@@ -45,6 +45,7 @@ interface SchemaNode {
     default?: unknown;
     additionalProperties?: SchemaNode | boolean;
     oneOf?: unknown[];
+    anyOf?: unknown[];
     description?: string;
     format?: string;
     minimum?: number;
@@ -295,7 +296,13 @@ describe('HetznerServer specifically', () => {
     const spec = crd?.spec.versions[0]?.schema.openAPIV3Schema.properties?.spec;
 
     it('requires only the fields the adapter requires', () => {
-        expect(spec?.required?.sort()).toEqual(['image', 'serverType']);
+        expect(spec?.required?.sort()).toEqual(['image']);
+    });
+
+    it('requires one of the two server type fields at apply time', () => {
+        // Without the webhook installed, this junctor is the only thing that
+        // rejects a server with no type at all before it reaches the operator.
+        expect(spec?.anyOf).toEqual([{ required: ['serverType'] }, { required: ['serverTypes'] }]);
     });
 
     it('offers every convergent operation the adapter implements', () => {

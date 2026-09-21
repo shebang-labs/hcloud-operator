@@ -77,6 +77,33 @@ describe('createValidator', () => {
         expect(response.status?.code).toBe(422);
     });
 
+    it('checks every entry of serverTypes, naming the one that is wrong', async () => {
+        // A fallback entry is only reached when Hetzner is out of capacity, so
+        // a typo there stays invisible until the one moment it has to work.
+        const response = await validator.review(
+            request('HetznerServer', {
+                image: 'ubuntu-24.04',
+                location: 'nbg1',
+                serverTypes: ['cpx21', 'cpx99'],
+            }),
+        );
+
+        expect(response.allowed).toBe(false);
+        expect(response.status?.message).toMatch(/spec.serverTypes\[1\] "cpx99" does not exist/);
+    });
+
+    it('accepts a serverTypes list Hetzner has every entry of', async () => {
+        const response = await validator.review(
+            request('HetznerServer', {
+                image: 'ubuntu-24.04',
+                location: 'nbg1',
+                serverTypes: ['cpx21', 'cx22'],
+            }),
+        );
+
+        expect(response.allowed).toBe(true);
+    });
+
     it('rejects a server type Hetzner does not have, and lists the ones it does', async () => {
         const response = await validator.review(
             request('HetznerServer', { ...validServer, serverType: 'cpx99' }),
@@ -187,6 +214,19 @@ describe('createValidator', () => {
 
             expect(response.allowed).toBe(false);
             expect(response.status?.message).toMatch(/spec.serverType "cpx99" does not exist/);
+        });
+
+        it('does not re-check an unchanged serverTypes list', async () => {
+            // Two parses of the same YAML are never the same array reference,
+            // so comparing by identity would re-check the list on every edit
+            // and make an object read-only once Hetzner retires an entry.
+            const withList = { ...validServer, serverType: undefined, serverTypes: ['cx11'] };
+
+            const response = await validator.review(
+                update({ ...withList, serverTypes: ['cx11'] }, withList),
+            );
+
+            expect(response.allowed).toBe(true);
         });
 
         it('checks a catalog field the update adds', async () => {

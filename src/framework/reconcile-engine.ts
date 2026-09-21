@@ -179,6 +179,7 @@ export class ReconcileEngine<
             labels: buildLabels(resource, this.adapter.descriptor.kind),
             hetznerName: hetznerResourceName(namespace, name),
             refs: this.refs,
+            events: this.events,
         };
     }
 

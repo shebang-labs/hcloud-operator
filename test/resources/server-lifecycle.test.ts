@@ -7,6 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { CONDITION_SYNCED } from '../../src/kube/conditions.js';
 import { createServerAdapter } from '../../src/resources/server/index.js';
 import type { HetznerServerSpec, HetznerServerStatus } from '../../src/resources/server/spec.js';
 import { buildResource } from '../support/fake-store.js';
@@ -46,6 +47,85 @@ function only(): Record<string, unknown> {
     expect(all).toHaveLength(1);
     return all[0] as Record<string, unknown>;
 }
+
+describe('a server that fell back to a smaller type', () => {
+    /** Places the server, then pretends Hetzner gave it the second entry. */
+    async function fallenBack(spec: Record<string, unknown> = {}) {
+        const resource = server({
+            serverType: undefined,
+            serverTypes: ['cpx31', 'cpx21'],
+            ...spec,
+        });
+        await servers.settle(resource);
+        only().server_type = { name: 'cpx21' };
+        harness.api.reset();
+        return resource;
+    }
+
+    it('is left alone, because any listed type is in sync', async () => {
+        const resource = await fallenBack();
+
+        await servers.settle(resource);
+
+        // Resizing it back up would be downtime nobody asked for, on a node
+        // that is working — and a disk that grows cannot be shrunk again.
+        expect(
+            harness.api.countRequests(`POST /servers/${resource.status?.id}/actions/change_type`),
+        ).toBe(0);
+        expect(resource.status?.serverType).toBe('cpx21');
+    });
+
+    it('stays Synced, so it does not sit red for the rest of its life', async () => {
+        const resource = await fallenBack();
+
+        await servers.settle(resource);
+
+        expect(
+            servers.store.condition('default', resource.metadata?.name ?? '', CONDITION_SYNCED)
+                ?.status,
+        ).toBe('True');
+    });
+
+    it('is not resized even when allowDowntime is already set', async () => {
+        // allowDowntime is there for resizes the user asked for. It must not
+        // become blanket permission to undo a fallback.
+        const resource = await fallenBack({ allowDowntime: true });
+
+        await servers.settle(resource);
+
+        expect(
+            harness.api.countRequests(`POST /servers/${resource.status?.id}/actions/change_type`),
+        ).toBe(0);
+    });
+
+    it('is resized once its type leaves the list entirely', async () => {
+        // That takes a deliberate edit, which is the signal that a resize was
+        // actually intended.
+        const resource = await fallenBack({ allowDowntime: true });
+        resource.spec.serverTypes = ['cpx31'];
+
+        await servers.settle(resource);
+
+        expect(only().server_type).toMatchObject({ name: 'cpx31' });
+    });
+
+    it('explains itself rather than resizing when allowDowntime is unset', async () => {
+        const resource = await fallenBack();
+        resource.spec.serverTypes = ['cpx31'];
+
+        await servers.settle(resource);
+
+        // Both halves matter: which type is the problem, and which one a
+        // resize would actually produce — the first entry, not a nearest fit.
+        expect(resource.status?.message).toMatch(/no longer lists "cpx21"/);
+        expect(resource.status?.message).toMatch(/resized to "cpx31", the first type/);
+        expect(
+            servers.store.condition('default', resource.metadata?.name ?? '', CONDITION_SYNCED)
+                ?.status,
+        ).toBe('False');
+        expect(only().server_type).toMatchObject({ name: 'cpx21' });
+    });
+});
 
 describe('resizing a guest that ignores ACPI', () => {
     it('does not re-issue the shutdown while the grace period runs', async () => {

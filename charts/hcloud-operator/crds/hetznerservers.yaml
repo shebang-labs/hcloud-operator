@@ -71,14 +71,35 @@ spec:
             spec:
               type: object
               required:
-                - serverType
                 - image
+              # One of the two type fields must be set. `required` cannot express that, but a
+              # logical junctor carrying only `required` is allowed in a structural schema, and
+              # keeps the rejection at apply time for clusters running without the webhook.
+              anyOf:
+                - required:
+                    - serverType
+                - required:
+                    - serverTypes
               properties:
                 serverType:
                   type: string
                   description: >-
-                    Hetzner server type, e.g. "cpx21". Changing it resizes the server and requires
-                    allowDowntime.
+                    DEPRECATED, use serverTypes instead; it is read as a single-entry list and
+                    will be removed in a future major version. Hetzner server type, e.g.
+                    "cpx21". Changing it resizes the server and requires allowDowntime.
+                serverTypes:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                  description: >-
+                    Hetzner server types to try in order, e.g. ["cx53", "cx43"]. The first entry
+                    is the preferred type; a later one is used only when Hetzner has no capacity
+                    for the entries before it (412 resource_unavailable) at the moment the server
+                    is created. Whichever entry it lands on is reported in status.serverType and
+                    is then left alone: the server is never resized to move it back up the list.
+                    Changing the list resizes only a server whose current type is no longer in it,
+                    and that still requires allowDowntime. Mutually exclusive with serverType.
                 image:
                   type: string
                   description: >-

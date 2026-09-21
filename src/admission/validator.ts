@@ -31,6 +31,7 @@ import { type AdmissionRequest, type AdmissionResponse, allow, deny } from './re
 /** The subset of a server spec the catalog can check. */
 interface CatalogCheckedSpec {
     serverType?: unknown;
+    serverTypes?: unknown;
     image?: unknown;
     location?: unknown;
     datacenter?: unknown;
@@ -39,6 +40,7 @@ interface CatalogCheckedSpec {
 
 const CATALOG_CHECKED_FIELDS = [
     'serverType',
+    'serverTypes',
     'image',
     'location',
     'datacenter',
@@ -127,11 +129,26 @@ function fieldsToCheck(request: AdmissionRequest, spec: CatalogCheckedSpec): Cat
 
     const changed: CatalogCheckedSpec = {};
     for (const field of CATALOG_CHECKED_FIELDS) {
-        if (spec[field] !== (previous as CatalogCheckedSpec)[field]) {
+        if (!sameValue(spec[field], (previous as CatalogCheckedSpec)[field])) {
             changed[field] = spec[field];
         }
     }
     return changed;
+}
+
+/**
+ * Equality for the checked fields. Identity is enough for the strings, but
+ * `serverTypes` is an array: two structurally identical lists from two JSON
+ * parses are never the same reference, so identity would mark it changed on
+ * every update and re-check a list Hetzner may since have retired an entry
+ * from — turning the object read-only, which is exactly what fieldsToCheck
+ * exists to prevent.
+ */
+function sameValue(left: unknown, right: unknown): boolean {
+    if (Array.isArray(left) && Array.isArray(right)) {
+        return left.length === right.length && left.every((entry, i) => entry === right[i]);
+    }
+    return left === right;
 }
 
 /**
@@ -167,9 +184,32 @@ async function checkAgainstCatalog(
         }
     }
 
-    await check('spec.serverType', spec.serverType, async () =>
-        (await catalog.serverTypes()).map((type) => type.name),
-    );
+    /** The same check across a list, naming the entry that is wrong. */
+    async function checkEach(
+        field: string,
+        value: unknown,
+        load: () => Promise<(string | null | undefined)[]>,
+    ): Promise<void> {
+        if (!Array.isArray(value) || value.length === 0) {
+            return;
+        }
+        const valid = (await load()).filter((name): name is string => Boolean(name));
+        if (valid.length === 0) {
+            return;
+        }
+        value.forEach((entry, index) => {
+            if (typeof entry === 'string' && entry && !valid.includes(entry)) {
+                problems.push(unknownValue(`${field}[${index}]`, entry, valid));
+            }
+        });
+    }
+
+    const serverTypeNames = async () => (await catalog.serverTypes()).map((type) => type.name);
+
+    await check('spec.serverType', spec.serverType, serverTypeNames);
+    // A fallback entry is only reached when Hetzner is out of capacity, so a
+    // typo in one would lie dormant until the exact moment it has to work.
+    await checkEach('spec.serverTypes', spec.serverTypes, serverTypeNames);
     await check('spec.location', spec.location, async () =>
         (await catalog.locations()).map((location) => location.name),
     );

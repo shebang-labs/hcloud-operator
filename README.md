@@ -172,7 +172,7 @@ The controller turns each of those into a field you set and forget.
 | Set this                       | The controller does                                  | Guard needed    |
 | ------------------------------ | ---------------------------------------------------- | --------------- |
 | `powerState: Stopped`          | ACPI shutdown, then power off after the grace period | —               |
-| `serverType: cpx31`            | Power off → change type → power back on              | `allowDowntime` |
+| `serverTypes: [cpx31]`         | Power off → change type → power back on              | `allowDowntime` |
 | `image: debian-12`             | Rebuild — **erases the disk**                        | `allowDataLoss` |
 | `backups: true`                | Enable daily backups                                 | —               |
 | `rescue: { enabled: true }`    | Arm the rescue system for the next boot              | —               |
@@ -186,10 +186,46 @@ Without its guard flag, a destructive change is **reported, not applied**: the
 ```
 $ kubectl describe hsrv web-01
 ...
-  Synced   False   GuardRequired   spec.serverType is "cpx31" but the server runs
-                                   "cpx21". Resizing powers the server off and back
-                                   on, so set spec.allowDowntime: true to apply it.
+  Synced   False   GuardRequired   spec no longer lists "cpx21", which the server
+                                   runs; it would be resized to "cpx31", the first
+                                   type the list does name. Resizing powers the
+                                   server off and back on, so set
+                                   spec.allowDowntime: true to apply it.
 ```
+
+## Surviving a type Hetzner has run out of
+
+`serverTypes` is an ordered list. The first entry is what you want; the rest are
+what you will accept if Hetzner has no capacity for it.
+
+```yaml
+spec:
+  serverTypes: [cx53, cx43] # cx53 preferred, cx43 if it cannot be placed
+  location: fsn1
+```
+
+Hetzner answers `412 resource_unavailable` — "error during placement" — when a
+type has no capacity in a location. Retrying does not help: one observed
+incident took 149 refusals across 31 minutes while the next size down was
+placing on the first try. With a list, the controller moves on and the server
+comes up.
+
+Only a capacity error advances the list. Anything else — a bad image, a missing
+key, a quota — fails on the first entry, because it would fail identically on
+all of them.
+
+Whatever it lands on is where it stays. `status.serverType` reports the real
+type, a one-off Normal `ServerTypeFallback` event records why it is not the
+preferred one, and the controller never resizes a server to move it back up the
+list: a resize means downtime for a node that is working, and a disk that grows
+in the process can never be shrunk again. Only a type that has left the list
+entirely counts as drift, and that still needs `allowDowntime`.
+
+`serverType:` (singular) still works and means a one-entry list. It is
+deprecated and goes in a future major version. Setting both fields is rejected —
+`serverTypes` replaces it rather than extending it — and the CRD schema cannot
+express that, so without the admission webhook the rejection arrives as a
+`Synced: False` condition instead of at apply time.
 
 ## Adopting what you already have
 

@@ -18,8 +18,8 @@
  */
 
 import { REQUEUE_WHILE_TRANSITIONING_MS } from '../../framework/reconcile-engine.js';
-import type { ResourceAdapter, UpdateOutcome } from '../../framework/types.js';
-import { HetznerApiError } from '../../hcloud/errors.js';
+import type { ReconcileContext, ResourceAdapter, UpdateOutcome } from '../../framework/types.js';
+import { HetznerApiError, HetznerErrorCode } from '../../hcloud/errors.js';
 import type { ServerApi } from '../../hcloud/resources/servers.js';
 import type { Server } from '../../hcloud/types.js';
 import type { Phase } from '../../kube/api.js';
@@ -45,6 +45,7 @@ import {
     systemClock,
 } from './lifecycle.js';
 import {
+    desiredServerTypes,
     type HetznerServerSpec,
     type HetznerServerStatus,
     serverDescriptor,
@@ -79,8 +80,16 @@ export function createServerAdapter(
 
         validate(spec) {
             const problems: string[] = [];
-            if (!spec.serverType) {
-                problems.push('spec.serverType is required, e.g. "cpx21"');
+            if (spec.serverType && spec.serverTypes?.length) {
+                problems.push(
+                    'spec.serverType and spec.serverTypes are mutually exclusive; ' +
+                        'serverTypes replaces it, and a bare serverType is read as its first entry',
+                );
+            } else if (desiredServerTypes(spec).length === 0) {
+                problems.push(
+                    'one of spec.serverTypes or spec.serverType is required, e.g. ' +
+                        'serverTypes: ["cx53", "cx43"]',
+                );
             }
             if (!spec.image) {
                 problems.push('spec.image is required, e.g. "ubuntu-24.04"');
@@ -147,34 +156,37 @@ export function createServerAdapter(
                 : undefined;
             const userData = await resolveUserData(secrets, context.namespace, spec);
 
-            return api.create({
-                name: context.hetznerName,
-                serverType: spec.serverType,
-                image: spec.image,
-                ...(spec.datacenter
-                    ? { datacenter: spec.datacenter }
-                    : { location: spec.location }),
-                sshKeyIds,
-                networkIds,
-                ...(placementGroupId !== undefined ? { placementGroupId } : {}),
-                ...(userData ? { userData } : {}),
-                // Create the server in the state the spec asks for rather than
-                // starting it and immediately stopping it again.
-                startAfterCreate: desiredPowerState(spec) === 'Running',
-                ...(spec.publicNet
-                    ? {
-                          publicNet: {
-                              ...(spec.publicNet.enableIPv4 !== undefined
-                                  ? { enableIpv4: spec.publicNet.enableIPv4 }
-                                  : {}),
-                              ...(spec.publicNet.enableIPv6 !== undefined
-                                  ? { enableIpv6: spec.publicNet.enableIPv6 }
-                                  : {}),
-                          },
-                      }
-                    : {}),
-                labels: context.labels,
-            });
+            const attempt = (serverType: string) =>
+                api.create({
+                    name: context.hetznerName,
+                    serverType,
+                    image: spec.image,
+                    ...(spec.datacenter
+                        ? { datacenter: spec.datacenter }
+                        : { location: spec.location }),
+                    sshKeyIds,
+                    networkIds,
+                    ...(placementGroupId !== undefined ? { placementGroupId } : {}),
+                    ...(userData ? { userData } : {}),
+                    // Create the server in the state the spec asks for rather than
+                    // starting it and immediately stopping it again.
+                    startAfterCreate: desiredPowerState(spec) === 'Running',
+                    ...(spec.publicNet
+                        ? {
+                              publicNet: {
+                                  ...(spec.publicNet.enableIPv4 !== undefined
+                                      ? { enableIpv4: spec.publicNet.enableIPv4 }
+                                      : {}),
+                                  ...(spec.publicNet.enableIPv6 !== undefined
+                                      ? { enableIpv6: spec.publicNet.enableIPv6 }
+                                      : {}),
+                              },
+                          }
+                        : {}),
+                    labels: context.labels,
+                });
+
+            return createWithFallback(context, desiredServerTypes(spec), attempt);
         },
 
         async update(context, remote): Promise<UpdateOutcome> {
@@ -345,6 +357,89 @@ export function createServerAdapter(
             );
         },
     };
+}
+
+/**
+ * Creates the server, walking the type list until one places.
+ *
+ * Hetzner answers `412 resource_unavailable` — "error during placement" — when
+ * it has no capacity for a type in the requested location. Nothing is wrong
+ * with the request and nothing about retrying it helps: on the observed
+ * incident the same POST was refused 149 times across 31 minutes. Meanwhile the
+ * next size down was placing on the first try.
+ *
+ * Only that one error advances the list. Anything else — a bad image, a missing
+ * SSH key, a quota — would fail identically on every entry, and walking the
+ * list would turn one clear error into a pile of identical ones and multiply
+ * the requests behind it.
+ *
+ * When the whole list is unavailable the last error is rethrown, but marked
+ * retryable so the work queue backs off and comes back: capacity is exactly the
+ * kind of thing that frees up on its own. That is deliberately not done by
+ * classifying `resource_unavailable` as retryable in the HTTP client, which
+ * would make the first entry back off and retry instead of falling through to
+ * the second — the opposite of what this is for.
+ */
+async function createWithFallback(
+    context: ReconcileContext<HetznerServerSpec, HetznerServerStatus>,
+    serverTypes: string[],
+    attempt: (serverType: string) => Promise<Server>,
+): Promise<Server> {
+    const preferred = serverTypes[0];
+    if (!preferred) {
+        // validate() and the webhook both cover this; the throw only keeps the
+        // invariant honest if a new caller ever bypasses them.
+        throw new Error('spec declares no server type; set spec.serverTypes');
+    }
+
+    const unavailable: string[] = [];
+
+    for (const serverType of serverTypes) {
+        try {
+            const created = await attempt(serverType);
+            if (unavailable.length > 0) {
+                // Normal, not Warning: falling back is the behaviour that was
+                // asked for, and a working node is not a problem. It is emitted
+                // once, at placement, purely so "why is this node smaller than
+                // the others?" has an answer months later without digging
+                // through operator logs.
+                context.events.normal(
+                    context.resource,
+                    'ServerTypeFallback',
+                    `Hetzner had no capacity for ${unavailable.join(', ')} in ` +
+                        `${context.spec.datacenter ?? context.spec.location}; ` +
+                        `placed ${serverType} instead`,
+                );
+            }
+            return created;
+        } catch (error) {
+            if (!(error instanceof HetznerApiError) || !isCapacityError(error)) {
+                throw error;
+            }
+            unavailable.push(serverType);
+            context.logger.warn('Hetzner has no capacity for this server type', {
+                serverType,
+                remaining: serverTypes.length - unavailable.length,
+            });
+        }
+    }
+
+    throw new HetznerApiError({
+        status: 412,
+        code: HetznerErrorCode.ResourceUnavailable,
+        message:
+            `Hetzner has no capacity for any of ${unavailable.join(', ')} in ` +
+            `${context.spec.datacenter ?? context.spec.location}. Waiting for capacity; ` +
+            'add a smaller type to spec.serverTypes to place sooner.',
+        // Capacity frees up on its own, so this is worth coming back to — which
+        // the queue now does on its exponential backoff rather than in a loop.
+        retryable: true,
+    });
+}
+
+/** Hetzner's "error during placement": the type exists, the capacity does not. */
+function isCapacityError(error: HetznerApiError): boolean {
+    return error.code === HetznerErrorCode.ResourceUnavailable;
 }
 
 /**
