@@ -12,6 +12,8 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-21
+
 ### Added
 
 - `HetznerServer.spec.serverTypes` takes an ordered list of server types and
@@ -123,7 +125,8 @@ First public release.
 - Multi-arch images (`linux/amd64`, `linux/arm64`) on Docker Hub, signed with
   cosign and shipped with an SBOM and provenance.
 
-[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.2.0
 [1.1.2]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.2
 [1.1.1]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.1
 [1.1.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.0

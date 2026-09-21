@@ -1,6 +1,6 @@
 {
     "name": "@shebanglabs/hcloud-operator",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "description": "A Kubernetes operator that manages Hetzner Cloud declaratively: servers, volumes, networks, firewalls, load balancers, IPs, certificates, images, SSH keys and placement groups.",
     "license": "MIT",
     "type": "module",
