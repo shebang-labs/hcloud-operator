@@ -76,6 +76,13 @@ export class ResourceController<
     private readonly logger: Logger;
     private readonly queue: WorkQueue;
 
+    /**
+     * The `metadata.generation` each key was last enqueued for, so a watch event
+     * that carries no spec change can be dropped. Entries are removed when the
+     * object is deleted.
+     */
+    private readonly seenGenerations = new Map<string, number>();
+
     private informer?: Informer<ManagedResource<TSpec, TStatus>>;
     private resyncTimer?: NodeJS.Timeout;
     private restartTimer?: NodeJS.Timeout;
@@ -252,20 +259,72 @@ export class ResourceController<
             listFn,
         );
 
-        const enqueue = (event: string) => (resource: ManagedResource<TSpec, TStatus>) => {
+        const enqueue = (event: string, resource: ManagedResource<TSpec, TStatus>): void => {
             const key = resourceKey(resource);
+            const generation = resource.metadata?.generation;
+            if (generation !== undefined) {
+                this.seenGenerations.set(key, generation);
+            }
             this.logger.debug('Received watch event', { event, resource: key });
             this.queue.add(key);
         };
 
-        informer.on('add', enqueue('add'));
-        informer.on('update', enqueue('update'));
+        // An `add` is never filtered. The informer only emits one for an object
+        // its cache has no copy of, which means this process has not acted on
+        // the object in this informer's lifetime — the startup list, and a
+        // relist that brought something back. Reconciling then is the whole
+        // reason a Pod restart is safe, and the recorded generation is a
+        // process-lifetime memory that can outlive an informer, so consulting
+        // it here would let a stale entry drop the one event that matters.
+        informer.on('add', (resource: ManagedResource<TSpec, TStatus>) => {
+            enqueue('add', resource);
+        });
+
+        informer.on('update', (resource: ManagedResource<TSpec, TStatus>) => {
+            const key = resourceKey(resource);
+            const generation = resource.metadata?.generation;
+
+            // Every status write the engine makes comes back here as a watch
+            // event, and enqueuing it wakes the operator up on its own writing.
+            // While a key is running that lands it in the queue's `dirty` set,
+            // which means "the spec changed underneath us, look again now" — so
+            // the queue discards the delay it was about to apply and reconciles
+            // immediately. The result is a hot loop that no backoff can damp,
+            // because the backoff is never reached: a server blocked on Hetzner
+            // capacity re-POSTed every few seconds for half an hour, and an
+            // object waiting on a missing reference ignored its 15s requeue.
+            //
+            // Every CRD here declares `subresources.status`, so the API server
+            // leaves `metadata.generation` alone on a status write and bumps it
+            // only for the spec — and for a deletion, which sets
+            // deletionTimestamp. Nothing the reconciler reads changes without it
+            // moving: the spec, and a uid and name that never change at all.
+            // Adding our finalizer does not bump it either, which is why that
+            // path requeues explicitly rather than waiting for this event.
+            //
+            // Drift on the Hetzner side is invisible to the watch whatever we do
+            // here; the resync timer is what notices it.
+            if (generation !== undefined && this.seenGenerations.get(key) === generation) {
+                this.logger.debug('Ignoring a watch event that did not change the spec', {
+                    event: 'update',
+                    resource: key,
+                    generation,
+                });
+                return;
+            }
+
+            enqueue('update', resource);
+        });
+
         informer.on('delete', (resource: ManagedResource<TSpec, TStatus>) => {
             // The object is gone for good, so drop its retry-backoff counter.
             // Without this the queue keeps one entry per object that ever failed
             // and never recovered — a small leak, but one keyed by user input
-            // and therefore unbounded over the lifetime of the process.
-            this.queue.forget(resourceKey(resource));
+            // and therefore unbounded over the lifetime of the process. The
+            // recorded generation is dropped for the same reason.
+            const key = resourceKey(resource);
+            this.queue.forget(key);
+            this.seenGenerations.delete(key);
         });
 
         informer.on('error', (error) => {

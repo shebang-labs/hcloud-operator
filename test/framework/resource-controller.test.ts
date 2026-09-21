@@ -34,10 +34,19 @@ function sshKey(name: string): AnyManagedResource {
     };
 }
 
+/** The same object at a known `metadata.generation`. */
+function sshKeyAt(name: string, generation: number): AnyManagedResource {
+    const resource = sshKey(name);
+    resource.metadata = { ...resource.metadata, generation };
+    return resource;
+}
+
 let api: FakeApiServer;
 let controller: ResourceController<CommonSpec, CommonStatus, Labelled>;
 /** Keys the engine was asked to reconcile, in order. */
 let reconciled: string[];
+/** Set by a test to hold every reconcile open until it resolves. */
+let holdReconcile: Promise<void> | undefined;
 
 /** An adapter that records what it was asked to do and touches nothing. */
 function recordingEngine() {
@@ -75,6 +84,7 @@ function recordingEngine() {
     // controller routes the right keys to it.
     vi.spyOn(engine, 'reconcile').mockImplementation(async (namespace, name) => {
         reconciled.push(`${namespace}/${name}`);
+        await holdReconcile;
         return {};
     });
 
@@ -107,6 +117,7 @@ function build(overrides: Partial<ConstructorParameters<typeof ResourceControlle
 
 beforeEach(async () => {
     reconciled = [];
+    holdReconcile = undefined;
     api = new FakeApiServer({
         group: GROUP,
         version: VERSION,
@@ -210,6 +221,76 @@ describe('watch events', () => {
         // left to reconcile, and the queue only needs to drop its backoff state.
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(reconciled).not.toContain('default/web-01');
+    });
+
+    it('ignores an event that only changed the status', async () => {
+        // The engine writes status on every pass, and each write comes back as
+        // a MODIFIED event. Acting on it makes the operator wake itself up: the
+        // queue sees the key go dirty, treats that as "the spec changed", and
+        // drops the delay it was about to apply. That is the hot loop that made
+        // a server blocked on Hetzner capacity re-POST for half an hour.
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.includes('default/web-01'));
+        reconciled.length = 0;
+
+        // Same generation: the API server leaves it alone for a status write.
+        api.emit('MODIFIED', sshKeyAt('web-01', 4));
+
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(reconciled).not.toContain('default/web-01');
+    });
+
+    it('reconciles when the generation moves, which is what a spec change does', async () => {
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.includes('default/web-01'));
+        reconciled.length = 0;
+
+        api.emit('MODIFIED', sshKeyAt('web-01', 5));
+
+        await eventually(() => reconciled.includes('default/web-01'));
+    });
+
+    it('reconciles a deletion, which bumps the generation like a spec change', async () => {
+        // Losing this event would leave the finalizer in place and a paid
+        // server running, so it is worth pinning down rather than assuming.
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.includes('default/web-01'));
+        reconciled.length = 0;
+
+        const deleting = sshKeyAt('web-01', 5);
+        deleting.metadata = {
+            ...deleting.metadata,
+            deletionTimestamp: new Date().toISOString(),
+        };
+        api.emit('MODIFIED', deleting);
+
+        await eventually(() => reconciled.includes('default/web-01'));
+    });
+
+    it('still reconciles again for a spec change that lands mid-reconcile', async () => {
+        // The one event the queue's dirty/running path exists for. The filter
+        // sits in front of that path, so it has to let this through: a
+        // generation that moves while the key is already running must still
+        // mark it dirty, and the queue must run it again the moment the
+        // current pass returns rather than waiting for the resync.
+        let release = () => {};
+        holdReconcile = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        api.emit('ADDED', sshKeyAt('web-01', 4));
+        await eventually(() => reconciled.length === 1);
+
+        // The user edits the spec while the first pass is still running.
+        api.emit('MODIFIED', sshKeyAt('web-01', 5));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(reconciled).toHaveLength(1);
+
+        holdReconcile = undefined;
+        release();
+
+        await eventually(() => reconciled.length === 2);
+        expect(reconciled).toEqual(['default/web-01', 'default/web-01']);
     });
 
     it('collapses a burst of events for one object into few reconciles', async () => {
