@@ -99,6 +99,18 @@ export function isOwnedByAnother(remote: Labelled, uid: string): boolean {
     return Boolean(owner) && owner !== sanitizeLabelValue(uid);
 }
 
+/**
+ * The remote's labels with the five ownership labels removed, user labels kept.
+ * Hetzner's label update replaces the whole map, so this is what to send to
+ * release a resource.
+ */
+export function withoutOwnerLabels(
+    labels: Record<string, string> | undefined,
+): Record<string, string> {
+    const ownerKeys = new Set<string>(Object.values(OwnerLabel));
+    return Object.fromEntries(Object.entries(labels ?? {}).filter(([key]) => !ownerKeys.has(key)));
+}
+
 /** True when nothing claims the resource, so it is free to adopt. */
 export function isUnowned(remote: Labelled): boolean {
     return !remote.labels?.[OwnerLabel.Uid];

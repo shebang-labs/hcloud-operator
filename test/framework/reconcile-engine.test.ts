@@ -267,6 +267,101 @@ describe('ReconcileEngine', () => {
             expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
         });
 
+        describe('with deletionPolicy: Orphan', () => {
+            function startDeleting(resource: ReturnType<typeof sshKey>) {
+                resource.metadata = {
+                    ...resource.metadata,
+                    deletionTimestamp: new Date().toISOString(),
+                };
+            }
+
+            it('removes the ownership labels and keeps the user labels', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan', labels: { team: 'platform' } });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                expect(harness.api.peek('ssh_keys', id)?.labels).toHaveProperty([OwnerLabel.Uid]);
+
+                startDeleting(resource);
+                await keys.once(resource);
+
+                expect(harness.api.peek('ssh_keys', id)?.labels).toEqual({ team: 'platform' });
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+
+            it('releases the object when the Hetzner resource is already gone', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan' });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                await harness.hcloud.sshKeys.delete(id);
+                startDeleting(resource);
+
+                await keys.once(resource);
+
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+
+            it('keeps the finalizer and retries when removing the labels fails', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan' });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                startDeleting(resource);
+                harness.api.failNext({
+                    match: 'PUT /ssh_keys',
+                    error: new HetznerApiError({
+                        status: 500,
+                        code: 'server_error',
+                        message: 'boom',
+                        retryable: true,
+                    }),
+                });
+
+                await expect(keys.once(resource)).rejects.toThrow(/boom/);
+                expect(resource.metadata?.finalizers).toContain(FINALIZER);
+                expect(harness.api.peek('ssh_keys', id)?.labels).toHaveProperty([OwnerLabel.Uid]);
+
+                await keys.once(resource);
+
+                expect(harness.api.peek('ssh_keys', id)?.labels).toEqual({});
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+
+            it('lets a new object adopt the resource afterwards', async () => {
+                const first = sshKey({ deletionPolicy: 'Orphan' }, { name: 'first' });
+                await keys.settle(first);
+                const id = first.status?.id as number;
+                startDeleting(first);
+                await keys.once(first);
+                keys.store.drop('default', 'first');
+
+                const second = sshKey({ adoptExisting: String(id) }, { name: 'second' });
+                await keys.settle(second);
+
+                expect(second.status?.id).toBe(id);
+                expect(harness.api.all('ssh_keys')).toHaveLength(1);
+                expect(harness.api.peek('ssh_keys', id)?.labels).toMatchObject({
+                    [OwnerLabel.Uid]: second.metadata?.uid,
+                    [OwnerLabel.Name]: 'second',
+                });
+            });
+
+            it('does not touch a resource stamped by a different object', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan' });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                const labels = harness.api.peek('ssh_keys', id)?.labels as Record<string, string>;
+                labels[OwnerLabel.Uid] = 'some-other-object';
+                startDeleting(resource);
+
+                await keys.once(resource);
+
+                expect(harness.api.peek('ssh_keys', id)?.labels).toHaveProperty(
+                    [OwnerLabel.Uid],
+                    'some-other-object',
+                );
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+        });
+
         it('releases immediately when the Hetzner resource is already gone', async () => {
             const resource = sshKey({}, { deleting: true });
 

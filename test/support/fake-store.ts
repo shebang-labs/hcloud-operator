@@ -25,6 +25,8 @@ export class FakeResourceStore<T extends ManagedResource<CommonSpec, CommonStatu
     readonly statusPatches: Array<{ key: string; status: Partial<CommonStatus> }> = [];
     /** Set to make the next patchStatus throw, simulating a lost race. */
     failNextStatusPatch?: Error;
+    /** Namespaces whose reads fail like an RBAC 403 would. */
+    readonly forbiddenNamespaces = new Set<string>();
 
     add(resource: T): T {
         this.objects.set(keyOf(resource), resource);
@@ -42,13 +44,23 @@ export class FakeResourceStore<T extends ManagedResource<CommonSpec, CommonStatu
     }
 
     async get(namespace: string, name: string): Promise<T | null> {
+        this.assertReadable(namespace);
         return this.objects.get(`${namespace}/${name}`) ?? null;
     }
 
     async list(namespace?: string): Promise<T[]> {
+        if (namespace) {
+            this.assertReadable(namespace);
+        }
         return [...this.objects.values()].filter(
             (object) => !namespace || object.metadata?.namespace === namespace,
         );
+    }
+
+    private assertReadable(namespace: string): void {
+        if (this.forbiddenNamespaces.has(namespace)) {
+            throw new Error(`Forbidden: cannot read objects in namespace "${namespace}"`);
+        }
     }
 
     async patchStatus(namespace: string, name: string, status: T['status']): Promise<T | null> {

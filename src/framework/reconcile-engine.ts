@@ -49,9 +49,11 @@ import type { Logger } from '../observability/logger.js';
 import {
     buildLabels,
     hetznerResourceName,
+    isOwnedBy,
     isOwnedByAnother,
     labelsMatch,
     ownerSelector,
+    withoutOwnerLabels,
 } from './ownership.js';
 import { isDependencyError, type ReferenceResolver } from './references.js';
 import type { ReconcileContext, ReconcileResult, ResourceAdapter, UpdateOutcome } from './types.js';
@@ -523,17 +525,7 @@ export class ReconcileEngine<
         }
 
         if (context.spec.deletionPolicy === 'Orphan') {
-            logger.info('deletionPolicy is Orphan: leaving the Hetzner resource in place', {
-                id: resource.status?.id,
-            });
-            this.events.warning(
-                resource,
-                ConditionReason.Orphaned,
-                `deletionPolicy is Orphan: Hetzner ${this.adapter.descriptor.kind} ` +
-                    `${resource.status?.id ?? 'resource'} was left running and is no longer managed`,
-            );
-            await this.store.removeFinalizer(resource);
-            return {};
+            return this.orphanRemote(context);
         }
 
         const remote = await this.findRemoteForDeletion(context);
@@ -574,6 +566,60 @@ export class ReconcileEngine<
         // Check again before releasing the object: only a confirmed absence is
         // good enough to remove the finalizer.
         return { requeueAfterMs: REQUEUE_WHILE_DELETING_MS };
+    }
+
+    /**
+     * `deletionPolicy: Orphan`: release the Hetzner resource without deleting it.
+     *
+     * The ownership labels are removed first, because they would otherwise point
+     * at an object that no longer exists and block any later adoption. If that
+     * fails the finalizer stays and the pass is retried, so a resource is never
+     * left half-released. A resource stamped by a different object is not ours
+     * to touch.
+     */
+    private async orphanRemote(
+        context: ReconcileContext<TSpec, TStatus>,
+    ): Promise<ReconcileResult> {
+        const { resource, logger } = context;
+        const remote = await this.findRemoteForDeletion(context);
+        const labelsRemoved = remote !== null && (await this.removeOwnerLabels(context, remote));
+
+        logger.info('deletionPolicy is Orphan: leaving the Hetzner resource in place', {
+            id: remote?.id ?? resource.status?.id,
+            labelsRemoved,
+        });
+        this.events.warning(
+            resource,
+            ConditionReason.Orphaned,
+            `deletionPolicy is Orphan: Hetzner ${this.adapter.descriptor.kind} ` +
+                `${resource.status?.id ?? 'resource'} was left running and is no longer managed` +
+                (labelsRemoved ? '; its ownership labels were removed' : ''),
+        );
+        await this.store.removeFinalizer(resource);
+        return {};
+    }
+
+    /**
+     * Strips the ownership labels from a resource this object owns. Returns
+     * false when there was nothing to strip: someone else owns it, or Hetzner
+     * says it is already gone.
+     */
+    private async removeOwnerLabels(
+        context: ReconcileContext<TSpec, TStatus>,
+        remote: TRemote,
+    ): Promise<boolean> {
+        if (!isOwnedBy(remote, context.resource.metadata?.uid ?? '')) {
+            return false;
+        }
+        try {
+            await this.adapter.api.update(remote.id, { labels: withoutOwnerLabels(remote.labels) });
+            return true;
+        } catch (error) {
+            if (error instanceof HetznerApiError && error.isNotFound) {
+                return false;
+            }
+            throw error;
+        }
     }
 
     /**
