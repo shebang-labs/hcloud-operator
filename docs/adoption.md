@@ -54,7 +54,9 @@ spec:
 
 The controller then removes its five `hcloud.shebanglabs.io/*` ownership labels
 (your own `spec.labels` stay) and its finalizer, and leaves the resource running.
-A resource stamped by a different object is left untouched.
+A resource stamped by a different object is left untouched. `Orphan` is the
+right default while you are migrating; switch to `Delete` (the default) once you
+trust the manifests.
 
 Orphaning therefore needs a working Hetzner API, just like deletion. If the
 labels cannot be removed, the finalizer stays and the controller retries, so a
@@ -71,8 +73,7 @@ kubectl patch hsrv web-01 --type=merge -p '{"metadata":{"finalizers":null}}'
 
 (`null` drops all finalizers; the controller's own is
 `hcloud.shebanglabs.io/finalizer`.) The resource keeps its stale stamp, which a
-later `adoptExisting` can still take over as described below. This is the right default while you are
-migrating; switch to `Delete` (the default) once you trust the manifests.
+later `adoptExisting` can still take over as described below.
 
 Because the labels are gone, a released resource can be adopted by a new object
 with `adoptExisting`. That is how you move a resource to a new object without
