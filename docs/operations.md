@@ -27,7 +27,7 @@ Events:
 | `DependenciesReady` | Every referenced resource exists and is `Ready`.                        |
 
 Events are emitted on transitions only — created, adopted, changed, blocked,
-failed, deleting, orphaned — so a healthy cluster produces none, and identical
+failed, deleting, orphaned, took over a stale ownership stamp — so a healthy cluster produces none, and identical
 events are suppressed for ten minutes so a resource stuck in a retry loop
 cannot fill its namespace's event retention.
 
@@ -136,7 +136,7 @@ kubectl delete hsrv,hvol,hlb,hfip,hpip,hfw,hnet,hpg,hcert,himg,hkey --all -A
 ```
 
 Objects with `deletionPolicy: Orphan` are released without deleting the Hetzner
-resource. If the webhook is enabled, disable it before uninstalling (see
+resource; the controller's ownership labels are removed from it. If the webhook is enabled, disable it before uninstalling (see
 [webhook.md](webhook.md)).
 
 ## User data that carries credentials

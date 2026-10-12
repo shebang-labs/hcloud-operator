@@ -52,9 +52,40 @@ spec:
   deletionPolicy: Orphan
 ```
 
-The controller then removes its labels and finalizer and leaves the resource
-running. This is the right default while you are migrating; switch to `Delete`
-(the default) once you trust the manifests.
+The controller then removes its five `hcloud.shebanglabs.io/*` ownership labels
+(your own `spec.labels` stay) and its finalizer, and leaves the resource running.
+If Hetzner cannot be reached to remove the labels, the finalizer stays and the
+controller retries, so a resource is never half released. A resource stamped by
+a different object is left untouched. This is the right default while you are
+migrating; switch to `Delete` (the default) once you trust the manifests.
+
+Because the labels are gone, a released resource can be adopted by a new object
+with `adoptExisting`. That is how you move a resource to a new object without
+rebuilding it: orphan the old object, then create the new one.
+
+### Adopting a resource whose owner no longer exists
+
+Resources orphaned by an older controller version still carry labels that point
+at a deleted object. The controller normally refuses to adopt a resource that
+another object owns (`409 already_owned`), but it takes over a stamp whose owner
+is proven gone. That needs all of the following:
+
+- the stamp has a uid and a namespace, and its kind label matches the kind being
+  adopted into;
+- the controller can read that namespace (`WATCH_NAMESPACE` is unset or equal to
+  it);
+- no object with the stamped uid exists there any more, either because the
+  stamped name is gone or because it now belongs to a recreated object with a
+  different uid.
+
+Whenever that cannot be proven (for example a lookup error or a namespace the
+controller does not watch) the adoption is refused as before. A takeover emits a
+`TookOverStaleOwnership` event naming the old uid.
+
+**Known limit:** a controller in another cluster that shares the same Hetzner
+project cannot be seen. Adopting a resource it owns, when no object with the
+stamped uid exists in that namespace here, takes it over. `adoptExisting` names
+the resource explicitly, so this is treated as intent.
 
 `spec.protection.delete: true` is the belt to that suspenders: it turns on
 Hetzner's own delete protection, so even the controller cannot remove the

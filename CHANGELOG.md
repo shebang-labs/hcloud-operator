@@ -12,6 +12,20 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+### Fixed
+
+- `deletionPolicy: Orphan` now removes the `hcloud.shebanglabs.io/*` ownership
+  labels from the Hetzner resource, as the documentation always said. Before,
+  they were left pointing at a deleted object, and a later `adoptExisting` of the
+  resource failed with `409 already_owned`. If the labels cannot be removed the
+  finalizer is kept and the reconcile retries.
+- `adoptExisting` now takes over a resource whose ownership stamp belongs to an
+  object that no longer exists, which covers resources orphaned by earlier
+  versions. The stamp must have a namespace the controller can read and a
+  matching kind, and no object with the stamped uid may be left there; otherwise
+  the adoption is refused as before. A takeover emits a
+  `TookOverStaleOwnership` event.
+
 ## [1.2.0] — 2026-09-21
 
 ### Added
