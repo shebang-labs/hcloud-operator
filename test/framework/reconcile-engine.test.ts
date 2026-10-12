@@ -300,6 +300,24 @@ describe('ReconcileEngine', () => {
                 await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
             });
 
+            it('finds a live owner whose name stamp was cut shorter than 63 characters', async () => {
+                // Cutting at 63 leaves a trailing dash, which sanitizing then trims.
+                const longName = `${'a'.repeat(62)}-b`;
+                const target = seedStamped({ [OwnerLabel.Name]: 'a'.repeat(62) });
+                keys.store.add(sshKey({}, { name: longName, uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('finds a live owner by uid even when the stamp has no name label', async () => {
+                const target = seedStamped({ [OwnerLabel.Name]: undefined });
+                keys.store.add(sshKey({}, { name: 'former-owner', uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
             it('adopts a truncated stamp when no object has that uid', async () => {
                 const target = seedStamped({ [OwnerLabel.Name]: 'a'.repeat(63) });
                 keys.store.add(sshKey({}, { name: 'a'.repeat(70), uid: 'unrelated-uid' }));

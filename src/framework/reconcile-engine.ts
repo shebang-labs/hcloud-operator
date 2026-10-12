@@ -74,8 +74,6 @@ type StatusPatch = Omit<Partial<CommonStatus>, 'conditions'> &
         conditions?: ConditionInput[];
     };
 
-/** Hetzner label values are cut at this length, so a longer name stamp may be truncated. */
-const MAX_LABEL_VALUE_LENGTH = 63;
 /** How long to wait while Hetzner is still working on the resource. */
 export const REQUEUE_WHILE_TRANSITIONING_MS = 10_000;
 /** How long to wait for a delete to complete before checking again. */
@@ -323,20 +321,18 @@ export class ReconcileEngine<
 
     /**
      * Returns the uid on a resource's ownership stamp when that owner is proven
-     * to be gone, and undefined otherwise ("cannot prove it" means refuse).
+     * gone, and undefined otherwise ("cannot prove it" means refuse).
      *
-     * Proof needs the stamp's namespace, a kind that matches ours, and a
+     * Proof needs the stamp's uid and namespace, a kind that matches ours, and a
      * namespace this operator is allowed to read. The owner is gone when no
-     * object with that uid is left there: the stamped name is missing, or
-     * belongs to an object with another uid. The name stamp is cut at 63
-     * characters, so a name that long may be truncated and is searched by uid.
-     * A lookup error (for example a 403) proves nothing.
+     * object in that namespace has the stamped uid. The name stamp is not used:
+     * sanitizing may have cut it, so it cannot reliably find the owner, while
+     * the uid is exact. A lookup error (for example a 403) proves nothing.
      */
     private async staleOwnerUid(candidate: TRemote): Promise<string | undefined> {
         const stamp = candidate.labels ?? {};
         const ownerUid = stamp[OwnerLabel.Uid];
         const namespace = stamp[OwnerLabel.Namespace];
-        const name = stamp[OwnerLabel.Name];
         const kindMatches =
             stamp[OwnerLabel.Kind] === sanitizeLabelValue(this.adapter.descriptor.kind);
         const watched = !this.watchNamespace || this.watchNamespace === namespace;
@@ -345,12 +341,9 @@ export class ReconcileEngine<
         }
 
         try {
-            const mayBeTruncated = !name || name.length >= MAX_LABEL_VALUE_LENGTH;
-            const owners = mayBeTruncated
-                ? await this.store.list(namespace)
-                : [await this.store.get(namespace, name)];
-            const ownerExists = owners.some(
-                (owner) => sanitizeLabelValue(owner?.metadata?.uid ?? '') === ownerUid,
+            const objects = await this.store.list(namespace);
+            const ownerExists = objects.some(
+                (object) => sanitizeLabelValue(object.metadata?.uid ?? '') === ownerUid,
             );
             return ownerExists ? undefined : ownerUid;
         } catch (error) {
