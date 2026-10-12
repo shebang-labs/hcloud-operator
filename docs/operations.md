@@ -136,7 +136,13 @@ kubectl delete hsrv,hvol,hlb,hfip,hpip,hfw,hnet,hpg,hcert,himg,hkey --all -A
 ```
 
 Objects with `deletionPolicy: Orphan` are released without deleting the Hetzner
-resource; the controller's ownership labels are removed from it. If the webhook is enabled, disable it before uninstalling (see
+resource; the controller's ownership labels are removed from it. That needs the
+Hetzner API: with a revoked token the finalizer stays and the object, or its
+namespace, hangs in `Terminating`. Restore the credentials, or remove the
+finalizer `hcloud.shebanglabs.io/finalizer` by hand with
+`kubectl patch <kind> <name> --type=merge -p '{"metadata":{"finalizers":null}}'`
+(see [adoption.md](adoption.md)). The Hetzner resource then keeps a stale
+stamp, which `adoptExisting` can still take over later. If the webhook is enabled, disable it before uninstalling (see
 [webhook.md](webhook.md)).
 
 ## User data that carries credentials

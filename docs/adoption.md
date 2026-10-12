@@ -54,9 +54,24 @@ spec:
 
 The controller then removes its five `hcloud.shebanglabs.io/*` ownership labels
 (your own `spec.labels` stay) and its finalizer, and leaves the resource running.
-If Hetzner cannot be reached to remove the labels, the finalizer stays and the
-controller retries, so a resource is never half released. A resource stamped by
-a different object is left untouched. This is the right default while you are
+A resource stamped by a different object is left untouched.
+
+Orphaning therefore needs a working Hetzner API, just like deletion. If the
+labels cannot be removed, the finalizer stays and the controller retries, so a
+resource is never half released. Transient errors are retried with backoff;
+persistent ones (for example a revoked token answering 401, 403 or 422) are only
+retried on the resync, every five minutes, and until they clear the object, and
+any namespace or uninstall waiting on it, stays in `Terminating`. Fix the
+credentials and it completes by itself. To release the object without removing
+the labels, delete the finalizer by hand:
+
+```bash
+kubectl patch hsrv web-01 --type=merge -p '{"metadata":{"finalizers":null}}'
+```
+
+(`null` drops all finalizers; the controller's own is
+`hcloud.shebanglabs.io/finalizer`.) The resource keeps its stale stamp, which a
+later `adoptExisting` can still take over as described below. This is the right default while you are
 migrating; switch to `Delete` (the default) once you trust the manifests.
 
 Because the labels are gone, a released resource can be adopted by a new object
@@ -71,12 +86,12 @@ another object owns (`409 already_owned`), but it takes over a stamp whose owner
 is proven gone. That needs all of the following:
 
 - the stamp has a uid and a namespace, and its kind label matches the kind being
-  adopted into;
+  adopted into (the name label is not used, because it can be cut short);
 - the controller can read that namespace (`WATCH_NAMESPACE` is unset or equal to
   it);
-- no object with the stamped uid exists there any more, either because the
-  stamped name is gone or because it now belongs to a recreated object with a
-  different uid.
+- no object with the stamped uid exists there any more. The controller lists the
+  namespace and looks for the uid, so a deleted owner and a recreated one (same
+  name, new uid) are both stale.
 
 Whenever that cannot be proven (for example a lookup error or a namespace the
 controller does not watch) the adoption is refused as before. A takeover emits a
