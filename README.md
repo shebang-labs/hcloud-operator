@@ -205,10 +205,9 @@ spec:
 ```
 
 Hetzner answers `412 resource_unavailable` — "error during placement" — when a
-type has no capacity in a location. Retrying does not help: one observed
-incident took 149 refusals across 31 minutes while the next size down was
-placing on the first try. With a list, the controller moves on and the server
-comes up.
+type has no capacity in a location. Hetzner can keep rejecting a server type
+for an extended period when capacity runs out; the operator keeps retrying until
+it succeeds. With a list, the controller moves on and the server comes up.
 
 Only a capacity error advances the list. Anything else — a bad image, a missing
 key, a quota — fails on the first entry, because it would fail identically on
