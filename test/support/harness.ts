@@ -60,7 +60,7 @@ export interface Harness {
     readonly hcloud: HetznerCloud;
     readonly refs: ReferenceResolver;
     /** Registers a kind so the engine can reconcile it and references resolve. */
-    register(adapter: AnyAdapter): KindHarness;
+    register(adapter: AnyAdapter, options?: { watchNamespace?: string }): KindHarness;
 }
 
 export function createHarness(options: FakeHetznerOptions = {}): Harness {
@@ -103,7 +103,7 @@ export function createHarness(options: FakeHetznerOptions = {}): Harness {
         refs,
         events,
 
-        register(adapter) {
+        register(adapter, registerOptions = {}) {
             const store = new FakeResourceStore<AnyManagedResource>();
 
             const engine = new ReconcileEngine({
@@ -112,6 +112,7 @@ export function createHarness(options: FakeHetznerOptions = {}): Harness {
                 refs,
                 logger: nullLogger,
                 events: recorder,
+                ...registerOptions,
             });
 
             targets.set(adapter.descriptor.kind, {

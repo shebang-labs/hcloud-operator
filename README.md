@@ -231,7 +231,9 @@ express that, so without the admission webhook the rejection arrives as a
 
 `spec.adoptExisting` takes over a Hetzner resource that predates the controller
 instead of creating a new one, and `deletionPolicy: Orphan` guarantees that
-deleting the Kubernetes object leaves the real thing running:
+deleting the Kubernetes object leaves the real thing running. Orphaning also
+removes the controller's ownership labels, so the resource can be adopted by a
+new object later:
 
 ```yaml
 spec:

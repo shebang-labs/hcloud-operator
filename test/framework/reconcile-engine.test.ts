@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { HetznerApiError } from '../../src/hcloud/errors.js';
-import { FINALIZER, OwnerLabel } from '../../src/kube/api.js';
+import { FINALIZER, MANAGED_BY_VALUE, OwnerLabel } from '../../src/kube/api.js';
 import {
     CONDITION_DEPENDENCIES_READY,
     CONDITION_READY,
@@ -224,6 +224,157 @@ describe('ReconcileEngine', () => {
             await expect(keys.once(resource)).rejects.toThrow(/already managed by another/);
         });
 
+        describe('a resource stamped by an object that may no longer exist', () => {
+            const FORMER_OWNER_UID = 'former-owner-uid';
+
+            /** Seeds a key carrying a full ownership stamp, with optional changes. */
+            function seedStamped(
+                stamp: Record<string, string | undefined> = {},
+                id = 4800,
+            ): string {
+                const labels: Record<string, string | undefined> = {
+                    [OwnerLabel.ManagedBy]: MANAGED_BY_VALUE,
+                    [OwnerLabel.Uid]: FORMER_OWNER_UID,
+                    [OwnerLabel.Namespace]: 'default',
+                    [OwnerLabel.Name]: 'former-owner',
+                    [OwnerLabel.Kind]: 'HetznerSSHKey',
+                    ...stamp,
+                };
+                harness.api.seed('ssh_keys', {
+                    id,
+                    name: `stamped-${id}`,
+                    public_key: PUBLIC_KEY,
+                    labels: Object.fromEntries(
+                        Object.entries(labels).filter(([, value]) => value !== undefined),
+                    ),
+                });
+                return `stamped-${id}`;
+            }
+
+            it('adopts it when no object with that uid exists any more', async () => {
+                const target = seedStamped();
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await keys.settle(resource);
+
+                expect(resource.status?.id).toBe(4800);
+                expect(harness.api.peek('ssh_keys', 4800)?.labels).toMatchObject({
+                    [OwnerLabel.Uid]: resource.metadata?.uid,
+                    [OwnerLabel.Name]: 'new-owner',
+                });
+                expect(harness.events).toContainEqual(
+                    expect.objectContaining({
+                        reason: 'TookOverStaleOwnership',
+                        message: expect.stringContaining(FORMER_OWNER_UID),
+                    }),
+                );
+            });
+
+            it('adopts it when the stamped name now belongs to a recreated object', async () => {
+                const target = seedStamped();
+                keys.store.add(sshKey({}, { name: 'former-owner', uid: 'recreated-uid' }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await keys.settle(resource);
+
+                expect(resource.status?.id).toBe(4800);
+            });
+
+            it('still refuses it while the owner exists', async () => {
+                const target = seedStamped();
+                keys.store.add(sshKey({}, { name: 'former-owner', uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({
+                    status: 409,
+                    code: 'already_owned',
+                });
+            });
+
+            it('finds a live owner by uid when the stamped name was truncated', async () => {
+                const longName = 'a'.repeat(70);
+                const target = seedStamped({ [OwnerLabel.Name]: longName.slice(0, 63) });
+                keys.store.add(sshKey({}, { name: longName, uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('finds a live owner whose name stamp was cut shorter than 63 characters', async () => {
+                // Cutting at 63 leaves a trailing dash, which sanitizing then trims.
+                const longName = `${'a'.repeat(62)}-b`;
+                const target = seedStamped({ [OwnerLabel.Name]: 'a'.repeat(62) });
+                keys.store.add(sshKey({}, { name: longName, uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('finds a live owner by uid even when the stamp has no name label', async () => {
+                const target = seedStamped({ [OwnerLabel.Name]: undefined });
+                keys.store.add(sshKey({}, { name: 'former-owner', uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('adopts a truncated stamp when no object has that uid', async () => {
+                const target = seedStamped({ [OwnerLabel.Name]: 'a'.repeat(63) });
+                keys.store.add(sshKey({}, { name: 'a'.repeat(70), uid: 'unrelated-uid' }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await keys.settle(resource);
+
+                expect(resource.status?.id).toBe(4800);
+            });
+
+            it('refuses when the lookup fails, for example a 403', async () => {
+                const target = seedStamped({ [OwnerLabel.Namespace]: 'locked' });
+                keys.store.forbiddenNamespaces.add('locked');
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('refuses when the stamp has no namespace label', async () => {
+                const target = seedStamped({ [OwnerLabel.Namespace]: undefined });
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('refuses when the stamped namespace is not watched by this operator', async () => {
+                const watching = createHarness();
+                const scoped = watching.register(createSshKeyAdapter(watching.hcloud.sshKeys), {
+                    watchNamespace: 'default',
+                });
+                watching.api.seed('ssh_keys', {
+                    id: 4900,
+                    name: 'elsewhere',
+                    public_key: PUBLIC_KEY,
+                    labels: {
+                        [OwnerLabel.ManagedBy]: MANAGED_BY_VALUE,
+                        [OwnerLabel.Uid]: FORMER_OWNER_UID,
+                        [OwnerLabel.Namespace]: 'other',
+                        [OwnerLabel.Name]: 'former-owner',
+                        [OwnerLabel.Kind]: 'HetznerSSHKey',
+                    },
+                });
+                const resource = sshKey({ adoptExisting: 'elsewhere' }, { name: 'new-owner' });
+
+                await expect(scoped.once(resource)).rejects.toMatchObject({
+                    code: 'already_owned',
+                });
+            });
+
+            it('refuses when the stamp is for another kind', async () => {
+                const target = seedStamped({ [OwnerLabel.Kind]: 'HetznerServer' });
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+        });
+
         it('fails clearly when spec.adoptExisting names nothing', async () => {
             const resource = sshKey({ adoptExisting: 'does-not-exist' });
 
@@ -265,6 +416,101 @@ describe('ReconcileEngine', () => {
 
             expect(harness.api.all('ssh_keys')).toHaveLength(1);
             expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+        });
+
+        describe('with deletionPolicy: Orphan', () => {
+            function startDeleting(resource: ReturnType<typeof sshKey>) {
+                resource.metadata = {
+                    ...resource.metadata,
+                    deletionTimestamp: new Date().toISOString(),
+                };
+            }
+
+            it('removes the ownership labels and keeps the user labels', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan', labels: { team: 'platform' } });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                expect(harness.api.peek('ssh_keys', id)?.labels).toHaveProperty([OwnerLabel.Uid]);
+
+                startDeleting(resource);
+                await keys.once(resource);
+
+                expect(harness.api.peek('ssh_keys', id)?.labels).toEqual({ team: 'platform' });
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+
+            it('releases the object when the Hetzner resource is already gone', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan' });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                await harness.hcloud.sshKeys.delete(id);
+                startDeleting(resource);
+
+                await keys.once(resource);
+
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+
+            it('keeps the finalizer and retries when removing the labels fails', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan' });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                startDeleting(resource);
+                harness.api.failNext({
+                    match: 'PUT /ssh_keys',
+                    error: new HetznerApiError({
+                        status: 500,
+                        code: 'server_error',
+                        message: 'boom',
+                        retryable: true,
+                    }),
+                });
+
+                await expect(keys.once(resource)).rejects.toThrow(/boom/);
+                expect(resource.metadata?.finalizers).toContain(FINALIZER);
+                expect(harness.api.peek('ssh_keys', id)?.labels).toHaveProperty([OwnerLabel.Uid]);
+
+                await keys.once(resource);
+
+                expect(harness.api.peek('ssh_keys', id)?.labels).toEqual({});
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
+
+            it('lets a new object adopt the resource afterwards', async () => {
+                const first = sshKey({ deletionPolicy: 'Orphan' }, { name: 'first' });
+                await keys.settle(first);
+                const id = first.status?.id as number;
+                startDeleting(first);
+                await keys.once(first);
+                keys.store.drop('default', 'first');
+
+                const second = sshKey({ adoptExisting: String(id) }, { name: 'second' });
+                await keys.settle(second);
+
+                expect(second.status?.id).toBe(id);
+                expect(harness.api.all('ssh_keys')).toHaveLength(1);
+                expect(harness.api.peek('ssh_keys', id)?.labels).toMatchObject({
+                    [OwnerLabel.Uid]: second.metadata?.uid,
+                    [OwnerLabel.Name]: 'second',
+                });
+            });
+
+            it('does not touch a resource stamped by a different object', async () => {
+                const resource = sshKey({ deletionPolicy: 'Orphan' });
+                await keys.settle(resource);
+                const id = resource.status?.id as number;
+                const labels = harness.api.peek('ssh_keys', id)?.labels as Record<string, string>;
+                labels[OwnerLabel.Uid] = 'some-other-object';
+                startDeleting(resource);
+
+                await keys.once(resource);
+
+                expect(harness.api.peek('ssh_keys', id)?.labels).toHaveProperty(
+                    [OwnerLabel.Uid],
+                    'some-other-object',
+                );
+                expect(resource.metadata?.finalizers ?? []).not.toContain(FINALIZER);
+            });
         });
 
         it('releases immediately when the Hetzner resource is already gone', async () => {

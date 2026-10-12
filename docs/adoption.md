@@ -52,9 +52,56 @@ spec:
   deletionPolicy: Orphan
 ```
 
-The controller then removes its labels and finalizer and leaves the resource
-running. This is the right default while you are migrating; switch to `Delete`
-(the default) once you trust the manifests.
+The controller then removes its five `hcloud.shebanglabs.io/*` ownership labels
+(your own `spec.labels` stay) and its finalizer, and leaves the resource running.
+A resource stamped by a different object is left untouched. `Orphan` is the
+right default while you are migrating; switch to `Delete` (the default) once you
+trust the manifests.
+
+Orphaning therefore needs a working Hetzner API, just like deletion. If the
+labels cannot be removed, the finalizer stays and the controller retries, so a
+resource is never half released. Transient errors are retried with backoff;
+persistent ones (for example a revoked token answering 401, 403 or 422) are only
+retried on the resync, every five minutes, and until they clear the object, and
+any namespace or uninstall waiting on it, stays in `Terminating`. Fix the
+credentials and it completes by itself. To release the object without removing
+the labels, delete the finalizer by hand:
+
+```bash
+kubectl patch hsrv web-01 --type=merge -p '{"metadata":{"finalizers":null}}'
+```
+
+(`null` drops all finalizers; the controller's own is
+`hcloud.shebanglabs.io/finalizer`.) The resource keeps its stale stamp, which a
+later `adoptExisting` can still take over as described below.
+
+Because the labels are gone, a released resource can be adopted by a new object
+with `adoptExisting`. That is how you move a resource to a new object without
+rebuilding it: orphan the old object, then create the new one.
+
+### Adopting a resource whose owner no longer exists
+
+Resources orphaned by an older controller version still carry labels that point
+at a deleted object. The controller normally refuses to adopt a resource that
+another object owns (`409 already_owned`), but it takes over a stamp whose owner
+is proven gone. That needs all of the following:
+
+- the stamp has a uid and a namespace, and its kind label matches the kind being
+  adopted into (the name label is not used, because it can be cut short);
+- the controller can read that namespace (`WATCH_NAMESPACE` is unset or equal to
+  it);
+- no object with the stamped uid exists there any more. The controller lists the
+  namespace and looks for the uid, so a deleted owner and a recreated one (same
+  name, new uid) are both stale.
+
+Whenever that cannot be proven (for example a lookup error or a namespace the
+controller does not watch) the adoption is refused as before. A takeover emits a
+`TookOverStaleOwnership` event naming the old uid.
+
+**Known limit:** a controller in another cluster that shares the same Hetzner
+project cannot be seen. Adopting a resource it owns, when no object with the
+stamped uid exists in that namespace here, takes it over. `adoptExisting` names
+the resource explicitly, so this is treated as intent.
 
 `spec.protection.delete: true` is the belt to that suspenders: it turns on
 Hetzner's own delete protection, so even the controller cannot remove the

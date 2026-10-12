@@ -96,6 +96,7 @@ export function defineKind<
                 logger: environment.logger,
                 ...(environment.events ? { events: environment.events } : {}),
                 ...(environment.now ? { now: environment.now } : {}),
+                ...(environment.namespace ? { watchNamespace: environment.namespace } : {}),
             });
 
             const controller = new ResourceController<TSpec, TStatus, TRemote>({

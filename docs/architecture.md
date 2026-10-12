@@ -29,7 +29,9 @@ the same for every kind, once:
 
 1. Read the object from the API server. Gone? Done.
 2. Being deleted? Honour `spec.deletionPolicy`, delete the Hetzner resource, wait
-   until it is really gone, then remove the finalizer.
+   until it is really gone, then remove the finalizer. With `Orphan` nothing is
+   deleted: the ownership labels are removed from the resource, then the
+   finalizer.
 3. No finalizer yet? Add it **before** creating anything. A crash between
    "server created" and "finalizer added" would otherwise leave a running server
    nobody cleans up.
@@ -37,7 +39,9 @@ the same for every kind, once:
 5. Resolve references. A dependency that is not `Ready` yet sets
    `DependenciesReady=False` and requeues without consuming the retry budget.
 6. Find the Hetzner resource: by the id recorded in `status.id`, then by the
-   owner label carrying `metadata.uid`, then by `spec.adoptExisting`.
+   owner label carrying `metadata.uid`, then by `spec.adoptExisting`. Adoption
+   refuses a resource owned by another live object, but takes over a stamp whose
+   owner is proven gone.
 7. Not found → create it and record the id in status immediately.
 8. Found → sync ownership labels, let the adapter converge the rest, project the
    remote state into `status`.
