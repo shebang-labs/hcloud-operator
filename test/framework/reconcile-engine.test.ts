@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { HetznerApiError } from '../../src/hcloud/errors.js';
-import { FINALIZER, OwnerLabel } from '../../src/kube/api.js';
+import { FINALIZER, MANAGED_BY_VALUE, OwnerLabel } from '../../src/kube/api.js';
 import {
     CONDITION_DEPENDENCIES_READY,
     CONDITION_READY,
@@ -222,6 +222,139 @@ describe('ReconcileEngine', () => {
             const resource = sshKey({ adoptExisting: 'taken' });
 
             await expect(keys.once(resource)).rejects.toThrow(/already managed by another/);
+        });
+
+        describe('a resource stamped by an object that may no longer exist', () => {
+            const FORMER_OWNER_UID = 'former-owner-uid';
+
+            /** Seeds a key carrying a full ownership stamp, with optional changes. */
+            function seedStamped(
+                stamp: Record<string, string | undefined> = {},
+                id = 4800,
+            ): string {
+                const labels: Record<string, string | undefined> = {
+                    [OwnerLabel.ManagedBy]: MANAGED_BY_VALUE,
+                    [OwnerLabel.Uid]: FORMER_OWNER_UID,
+                    [OwnerLabel.Namespace]: 'default',
+                    [OwnerLabel.Name]: 'former-owner',
+                    [OwnerLabel.Kind]: 'HetznerSSHKey',
+                    ...stamp,
+                };
+                harness.api.seed('ssh_keys', {
+                    id,
+                    name: `stamped-${id}`,
+                    public_key: PUBLIC_KEY,
+                    labels: Object.fromEntries(
+                        Object.entries(labels).filter(([, value]) => value !== undefined),
+                    ),
+                });
+                return `stamped-${id}`;
+            }
+
+            it('adopts it when no object with that uid exists any more', async () => {
+                const target = seedStamped();
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await keys.settle(resource);
+
+                expect(resource.status?.id).toBe(4800);
+                expect(harness.api.peek('ssh_keys', 4800)?.labels).toMatchObject({
+                    [OwnerLabel.Uid]: resource.metadata?.uid,
+                    [OwnerLabel.Name]: 'new-owner',
+                });
+                expect(harness.events).toContainEqual(
+                    expect.objectContaining({
+                        reason: 'TookOverStaleOwnership',
+                        message: expect.stringContaining(FORMER_OWNER_UID),
+                    }),
+                );
+            });
+
+            it('adopts it when the stamped name now belongs to a recreated object', async () => {
+                const target = seedStamped();
+                keys.store.add(sshKey({}, { name: 'former-owner', uid: 'recreated-uid' }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await keys.settle(resource);
+
+                expect(resource.status?.id).toBe(4800);
+            });
+
+            it('still refuses it while the owner exists', async () => {
+                const target = seedStamped();
+                keys.store.add(sshKey({}, { name: 'former-owner', uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({
+                    status: 409,
+                    code: 'already_owned',
+                });
+            });
+
+            it('finds a live owner by uid when the stamped name was truncated', async () => {
+                const longName = 'a'.repeat(70);
+                const target = seedStamped({ [OwnerLabel.Name]: longName.slice(0, 63) });
+                keys.store.add(sshKey({}, { name: longName, uid: FORMER_OWNER_UID }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('adopts a truncated stamp when no object has that uid', async () => {
+                const target = seedStamped({ [OwnerLabel.Name]: 'a'.repeat(63) });
+                keys.store.add(sshKey({}, { name: 'a'.repeat(70), uid: 'unrelated-uid' }));
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await keys.settle(resource);
+
+                expect(resource.status?.id).toBe(4800);
+            });
+
+            it('refuses when the lookup fails, for example a 403', async () => {
+                const target = seedStamped({ [OwnerLabel.Namespace]: 'locked' });
+                keys.store.forbiddenNamespaces.add('locked');
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('refuses when the stamp has no namespace label', async () => {
+                const target = seedStamped({ [OwnerLabel.Namespace]: undefined });
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
+
+            it('refuses when the stamped namespace is not watched by this operator', async () => {
+                const watching = createHarness();
+                const scoped = watching.register(createSshKeyAdapter(watching.hcloud.sshKeys), {
+                    watchNamespace: 'default',
+                });
+                watching.api.seed('ssh_keys', {
+                    id: 4900,
+                    name: 'elsewhere',
+                    public_key: PUBLIC_KEY,
+                    labels: {
+                        [OwnerLabel.ManagedBy]: MANAGED_BY_VALUE,
+                        [OwnerLabel.Uid]: FORMER_OWNER_UID,
+                        [OwnerLabel.Namespace]: 'other',
+                        [OwnerLabel.Name]: 'former-owner',
+                        [OwnerLabel.Kind]: 'HetznerSSHKey',
+                    },
+                });
+                const resource = sshKey({ adoptExisting: 'elsewhere' }, { name: 'new-owner' });
+
+                await expect(scoped.once(resource)).rejects.toMatchObject({
+                    code: 'already_owned',
+                });
+            });
+
+            it('refuses when the stamp is for another kind', async () => {
+                const target = seedStamped({ [OwnerLabel.Kind]: 'HetznerServer' });
+                const resource = sshKey({ adoptExisting: target }, { name: 'new-owner' });
+
+                await expect(keys.once(resource)).rejects.toMatchObject({ code: 'already_owned' });
+            });
         });
 
         it('fails clearly when spec.adoptExisting names nothing', async () => {

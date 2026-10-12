@@ -27,6 +27,7 @@
 
 import { HetznerApiError } from '../hcloud/errors.js';
 import type { Labelled } from '../hcloud/types.js';
+import { OwnerLabel } from '../kube/api.js';
 import {
     CONDITION_DEPENDENCIES_READY,
     CONDITION_READY,
@@ -53,6 +54,7 @@ import {
     isOwnedByAnother,
     labelsMatch,
     ownerSelector,
+    sanitizeLabelValue,
     withoutOwnerLabels,
 } from './ownership.js';
 import { isDependencyError, type ReferenceResolver } from './references.js';
@@ -72,6 +74,8 @@ type StatusPatch = Omit<Partial<CommonStatus>, 'conditions'> &
         conditions?: ConditionInput[];
     };
 
+/** Hetzner label values are cut at this length, so a longer name stamp may be truncated. */
+const MAX_LABEL_VALUE_LENGTH = 63;
 /** How long to wait while Hetzner is still working on the resource. */
 export const REQUEUE_WHILE_TRANSITIONING_MS = 10_000;
 /** How long to wait for a delete to complete before checking again. */
@@ -92,6 +96,11 @@ export interface ReconcileEngineDependencies<
     events?: EventRecorder;
     /** Injectable clock, so tests get stable timestamps. */
     now?: () => Date;
+    /**
+     * The one namespace this operator watches (`WATCH_NAMESPACE`); unset means
+     * all of them. Decides whether an ownership stamp can be checked at all.
+     */
+    watchNamespace?: string;
 }
 
 export class ReconcileEngine<
@@ -105,6 +114,7 @@ export class ReconcileEngine<
     private readonly logger: Logger;
     private readonly events: EventRecorder;
     private readonly now: () => Date;
+    private readonly watchNamespace: string | undefined;
 
     constructor(dependencies: ReconcileEngineDependencies<TSpec, TStatus, TRemote>) {
         this.adapter = dependencies.adapter;
@@ -113,6 +123,7 @@ export class ReconcileEngine<
         this.logger = dependencies.logger;
         this.events = dependencies.events ?? nullEventRecorder;
         this.now = dependencies.now ?? (() => new Date());
+        this.watchNamespace = dependencies.watchNamespace;
     }
 
     get kind(): string {
@@ -265,16 +276,33 @@ export class ReconcileEngine<
             });
         }
 
+        let staleOwnerUid: string | undefined;
         if (isOwnedByAnother(candidate, uid)) {
-            throw new HetznerApiError({
-                status: 409,
-                code: 'already_owned',
-                message:
-                    `Refusing to adopt Hetzner resource ${candidate.id}: it is already managed by ` +
-                    `another ${this.adapter.descriptor.kind}. Adopting it would give two objects the ` +
-                    'same resource, and deleting either would take it from the other.',
-                retryable: false,
+            staleOwnerUid = await this.staleOwnerUid(candidate);
+            if (!staleOwnerUid) {
+                throw new HetznerApiError({
+                    status: 409,
+                    code: 'already_owned',
+                    message:
+                        `Refusing to adopt Hetzner resource ${candidate.id}: it is already managed by ` +
+                        `another ${this.adapter.descriptor.kind}. Adopting it would give two objects the ` +
+                        'same resource, and deleting either would take it from the other.',
+                    retryable: false,
+                });
+            }
+        }
+
+        if (staleOwnerUid) {
+            context.logger.info('Taking over a stale ownership stamp', {
+                id: candidate.id,
+                staleOwnerUid,
             });
+            this.events.warning(
+                context.resource,
+                'TookOverStaleOwnership',
+                `Hetzner resource ${candidate.id} was stamped by ${this.adapter.descriptor.kind} ` +
+                    `uid ${staleOwnerUid}, which no longer exists; its ownership was taken over`,
+            );
         }
 
         context.logger.info('Adopting an existing Hetzner resource', {
@@ -291,6 +319,47 @@ export class ReconcileEngine<
         return (await this.adapter.api.update(candidate.id, {
             labels: context.labels,
         })) as TRemote;
+    }
+
+    /**
+     * Returns the uid on a resource's ownership stamp when that owner is proven
+     * to be gone, and undefined otherwise ("cannot prove it" means refuse).
+     *
+     * Proof needs the stamp's namespace, a kind that matches ours, and a
+     * namespace this operator is allowed to read. The owner is gone when no
+     * object with that uid is left there: the stamped name is missing, or
+     * belongs to an object with another uid. The name stamp is cut at 63
+     * characters, so a name that long may be truncated and is searched by uid.
+     * A lookup error (for example a 403) proves nothing.
+     */
+    private async staleOwnerUid(candidate: TRemote): Promise<string | undefined> {
+        const stamp = candidate.labels ?? {};
+        const ownerUid = stamp[OwnerLabel.Uid];
+        const namespace = stamp[OwnerLabel.Namespace];
+        const name = stamp[OwnerLabel.Name];
+        const kindMatches =
+            stamp[OwnerLabel.Kind] === sanitizeLabelValue(this.adapter.descriptor.kind);
+        const watched = !this.watchNamespace || this.watchNamespace === namespace;
+        if (!ownerUid || !namespace || !kindMatches || !watched) {
+            return undefined;
+        }
+
+        try {
+            const mayBeTruncated = !name || name.length >= MAX_LABEL_VALUE_LENGTH;
+            const owners = mayBeTruncated
+                ? await this.store.list(namespace)
+                : [await this.store.get(namespace, name)];
+            const ownerExists = owners.some(
+                (owner) => sanitizeLabelValue(owner?.metadata?.uid ?? '') === ownerUid,
+            );
+            return ownerExists ? undefined : ownerUid;
+        } catch (error) {
+            this.logger.warn('Could not check whether the stamped owner still exists', {
+                namespace,
+                error: summarizeError(error),
+            });
+            return undefined;
+        }
     }
 
     private async createRemote(
