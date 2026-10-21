@@ -1,7 +1,7 @@
 /**
  * A token bucket shared by every controller in the process.
  *
- * Hetzner allows 3600 requests per hour per project. With eleven kinds each
+ * Hetzner allows 3600 requests per hour per project. With twelve kinds each
  * resyncing on a timer, an operator can chew through that budget and then
  * starve everything else using the same token — including a human running
  * `hcloud server list`. So we self-limit below the real ceiling instead of

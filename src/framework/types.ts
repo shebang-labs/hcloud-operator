@@ -1,5 +1,5 @@
 /**
- * The contract between the generic reconcile engine and the eleven
+ * The contract between the generic reconcile engine and the twelve
  * kind-specific adapters.
  *
  * The split is the whole design: everything that is the *same* for a Hetzner

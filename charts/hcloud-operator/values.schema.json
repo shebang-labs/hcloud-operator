@@ -29,7 +29,7 @@
               "HetznerServer", "HetznerSSHKey", "HetznerVolume", "HetznerNetwork",
               "HetznerFirewall", "HetznerLoadBalancer", "HetznerFloatingIP",
               "HetznerPrimaryIP", "HetznerPlacementGroup", "HetznerCertificate",
-              "HetznerImage"
+              "HetznerImage", "HetznerStorageBox"
             ]
           },
           "uniqueItems": true

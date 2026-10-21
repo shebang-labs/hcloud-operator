@@ -46,7 +46,7 @@ To use a Secret you manage yourself (External Secrets, Sealed Secrets, SOPS):
 
 ## CRDs
 
-The chart installs the eleven `hcloud.shebanglabs.io` CRDs from its `crds/`
+The chart installs the twelve `hcloud.shebanglabs.io` CRDs from its `crds/`
 directory. Helm never upgrades CRDs; when a release changes them, apply them
 first with `kubectl apply --server-side -f crds/`. They are kept on
 `helm uninstall` so your objects, and the Hetzner resources behind them, are

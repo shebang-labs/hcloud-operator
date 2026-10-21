@@ -310,7 +310,7 @@ main.ts
                     └── kube/, observability/, config/
 ```
 
-The reconcile engine does everything generic once, for all eleven kinds: add
+The reconcile engine does everything generic once, for all twelve kinds: add
 the finalizer *before* creating anything, gate on dependencies, find the remote
 resource by recorded id, then by owner label, then by adoption, create or
 converge, project reality into status. An adapter contributes only what

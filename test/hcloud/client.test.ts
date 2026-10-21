@@ -38,7 +38,7 @@ describe('createHetznerCloud', () => {
     });
 
     it('shares one rate limiter across every group, sized from the config', () => {
-        // Per-group limiters would let eleven controllers spend eleven budgets.
+        // Per-group limiters would let twelve controllers spend twelve budgets.
         expect(hcloud.rateLimiter).toBeDefined();
         expect(hcloud.rateLimiter.available).toBe(20); // 1200/hour is 20/minute.
     });

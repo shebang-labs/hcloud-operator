@@ -1,0 +1,30 @@
+# A Storage Box reached only over SSH (SFTP, scp, rsync) with a key, on port 23:
+#
+#   rsync -e 'ssh -p 23' ./backup.tar.zst <status.username>@<status.server>:backups/
+#
+# The key is installed once, at create; Hetzner has no call that changes it
+# later. Create also requires a password, so the operator sends a random one
+# and discards it — use Hetzner's reset_password if you ever need one.
+#
+# Servers inside Hetzner's network reach the box without reachableExternally;
+# turn it on only for access from elsewhere.
+apiVersion: hcloud.shebanglabs.io/v1alpha1
+kind: HetznerStorageBox
+metadata:
+  name: backups
+  namespace: default
+spec:
+  storageBoxType: bx11
+  location: fsn1
+  sshKeyRefs:
+    - name: admin
+  accessSettings:
+    sshEnabled: true
+    sambaEnabled: false
+    webdavEnabled: false
+    zfsEnabled: false
+    reachableExternally: false
+  # The box holds data: deleting this object leaves it in place.
+  deletionPolicy: Orphan
+  protection:
+    delete: true
