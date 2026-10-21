@@ -12,6 +12,8 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-21
+
 ### Added
 
 - `HetznerStorageBox` (short name `hsb`): a Storage Box with its type, location,
@@ -28,6 +30,11 @@ Internal package layout is not part of it.
   be `https`, like `HETZNER_API_URL`. Both hosts share one request budget.
 - A new CRD, so apply the CRDs before upgrading: Helm installs them but never
   upgrades them. The chart's RBAC gains `hetznerstorageboxes`.
+
+### Security
+
+- `follow-redirects` 1.16.1 (GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c), pulled in
+  by axios. The controller never follows redirects, so neither was reachable.
 
 ## [1.3.0] — 2026-10-12
 
@@ -158,7 +165,8 @@ First public release.
 - Multi-arch images (`linux/amd64`, `linux/arm64`) on Docker Hub, signed with
   cosign and shipped with an SBOM and provenance.
 
-[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/shebang-labs/hcloud-operator/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.4.0
 [1.3.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.3.0
 [1.2.0]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.2.0
 [1.1.2]: https://github.com/shebang-labs/hcloud-operator/releases/tag/v1.1.2
