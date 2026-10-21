@@ -46,7 +46,7 @@ To use a Secret you manage yourself (External Secrets, Sealed Secrets, SOPS):
 
 ## CRDs
 
-The chart installs the eleven `hcloud.shebanglabs.io` CRDs from its `crds/`
+The chart installs the twelve `hcloud.shebanglabs.io` CRDs from its `crds/`
 directory. Helm never upgrades CRDs; when a release changes them, apply them
 first with `kubectl apply --server-side -f crds/`. They are kept on
 `helm uninstall` so your objects, and the Hetzner resources behind them, are
@@ -75,6 +75,7 @@ Kubernetes: `>=1.25.0-0`
 | fullnameOverride | string | `""` |  |
 | hetzner.actionTimeoutMs | int | `600000` | How long to wait for an asynchronous Hetzner action (a server create, a resize) to finish before giving up, in milliseconds. |
 | hetzner.apiUrl | string | `"https://api.hetzner.cloud/v1"` | Base URL of the Hetzner Cloud API. Only change this for a local record/replay proxy; anything other than https is refused at startup. |
+| hetzner.storageApiUrl | string | `"https://api.hetzner.com/v1"` | Base URL of the Hetzner API that serves Storage Boxes. Same token as the Cloud API, different host. Same https rule as `apiUrl`. |
 | hetzner.existingSecret | string | `""` | Name of an existing Secret holding the token, if you prefer to manage it yourself (for example with External Secrets or Sealed Secrets). Takes precedence over `hetzner.token`. |
 | hetzner.existingSecretKey | string | `"token"` | Key inside `hetzner.existingSecret` that holds the token. |
 | hetzner.requestsPerHour | int | `3000` | Self-imposed request budget per hour. Hetzner allows 3600 per project; staying under it keeps the controller from starving other users of the same token. |

@@ -95,6 +95,11 @@ annotations:
       name: hetznerimages.hcloud.shebanglabs.io
       displayName: Hetzner Image
       description: A snapshot of a server's disk.
+    - kind: HetznerStorageBox
+      version: v1alpha1
+      name: hetznerstorageboxes.hcloud.shebanglabs.io
+      displayName: Hetzner Storage Box
+      description: A Storage Box, its type, access settings, SSH keys and protection.
   artifacthub.io/crdsExamples: |
     - apiVersion: hcloud.shebanglabs.io/v1alpha1
       kind: HetznerServer

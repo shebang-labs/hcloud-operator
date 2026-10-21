@@ -122,4 +122,5 @@ webhook can never disagree about the list.
 - hetznerplacementgroups
 - hetznercertificates
 - hetznerimages
+- hetznerstorageboxes
 {{- end }}

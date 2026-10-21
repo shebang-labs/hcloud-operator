@@ -196,6 +196,18 @@ describe('the Hetzner API URL', () => {
     });
 });
 
+describe('the Hetzner Storage Box API URL', () => {
+    it('defaults to api.hetzner.com over https', () => {
+        expect(loadConfig(minimal).hetznerStorageApiUrl).toBe('https://api.hetzner.com/v1');
+    });
+
+    it('refuses plain http, like the Cloud API URL', () => {
+        expect(() =>
+            loadConfig({ ...minimal, HETZNER_STORAGE_API_URL: 'http://api.hetzner.com/v1' }),
+        ).toThrow(/HETZNER_STORAGE_API_URL must use https/);
+    });
+});
+
 describe('serializing the config', () => {
     it('redacts the token, so logging the config cannot leak it', () => {
         // Nothing logs the whole config today. This makes it safe when somebody

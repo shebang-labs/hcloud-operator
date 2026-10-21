@@ -22,6 +22,7 @@ import { createPlacementGroupApi, type PlacementGroupApi } from './resources/pla
 import { createPrimaryIpApi, type PrimaryIpApi } from './resources/primary-ips.js';
 import { createServerApi, type ServerApi } from './resources/servers.js';
 import { createSshKeyApi, type SshKeyApi } from './resources/ssh-keys.js';
+import { createStorageBoxApi, type StorageBoxApi } from './resources/storage-boxes.js';
 import { createVolumeApi, type VolumeApi } from './resources/volumes.js';
 
 export interface HetznerCloud {
@@ -36,6 +37,7 @@ export interface HetznerCloud {
     readonly placementGroups: PlacementGroupApi;
     readonly certificates: CertificateApi;
     readonly images: ImageApi;
+    readonly storageBoxes: StorageBoxApi;
     readonly catalog: CatalogApi;
     /** Exposed so the metrics gauge can read the remaining request budget. */
     readonly rateLimiter: RateLimiter;
@@ -44,6 +46,8 @@ export interface HetznerCloud {
 export interface HetznerCloudOptions {
     token: string;
     baseUrl: string;
+    /** Host serving Storage Boxes; same token, different API. */
+    storageBaseUrl: string;
     timeoutMs?: number;
     requestsPerHour?: number;
     actionTimeoutMs?: number;
@@ -55,27 +59,43 @@ export interface HetznerCloudOptions {
 export function createHetznerCloud(options: HetznerCloudOptions): HetznerCloud {
     const rateLimiter = new RateLimiter({ requestsPerHour: options.requestsPerHour ?? 3_000 });
 
-    const http = createHetznerHttpClient({
-        token: options.token,
-        baseUrl: options.baseUrl,
-        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-        rateLimiter,
-        ...(options.metrics ? { metrics: options.metrics } : {}),
-    });
+    // Both hosts draw on one budget. They may be limited separately upstream,
+    // but sharing keeps the operator's total traffic under what it was told.
+    const clientFor = (baseUrl: string) =>
+        createHetznerHttpClient({
+            token: options.token,
+            baseUrl,
+            ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+            rateLimiter,
+            ...(options.metrics ? { metrics: options.metrics } : {}),
+        });
 
-    const actions = createActionTracker({
+    // Actions are polled on the host that issued them.
+    const trackerFor = (http: HttpClient) =>
+        createActionTracker({
+            http,
+            ...(options.actionTimeoutMs !== undefined
+                ? { timeoutMs: options.actionTimeoutMs }
+                : {}),
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.metrics
+                ? {
+                      onSettled: (command, outcome) =>
+                          options.metrics?.actionTotal.inc({ command, outcome }),
+                  }
+                : {}),
+        });
+
+    const http = clientFor(options.baseUrl);
+    const storageHttp = clientFor(options.storageBaseUrl);
+
+    return assembleHetznerCloud({
         http,
-        ...(options.actionTimeoutMs !== undefined ? { timeoutMs: options.actionTimeoutMs } : {}),
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.metrics
-            ? {
-                  onSettled: (command, outcome) =>
-                      options.metrics?.actionTotal.inc({ command, outcome }),
-              }
-            : {}),
+        actions: trackerFor(http),
+        storageHttp,
+        storageActions: trackerFor(storageHttp),
+        rateLimiter,
     });
-
-    return assembleHetznerCloud({ http, actions, rateLimiter });
 }
 
 /**
@@ -86,6 +106,12 @@ export function createHetznerCloud(options: HetznerCloudOptions): HetznerCloud {
 export function assembleHetznerCloud(dependencies: {
     http: HttpClient;
     actions: ActionTracker;
+    /**
+     * Transport and tracker for the Storage Box host. Default to `http` and
+     * `actions`, so a test can serve both hosts from one fake.
+     */
+    storageHttp?: HttpClient;
+    storageActions?: ActionTracker;
     /**
      * The limiter the transport is actually using. Required, because returning
      * a fresh one here would hand callers an object wired to nothing — the
@@ -108,6 +134,10 @@ export function assembleHetznerCloud(dependencies: {
         placementGroups: createPlacementGroupApi(deps),
         certificates: createCertificateApi(deps),
         images: createImageApi(deps),
+        storageBoxes: createStorageBoxApi({
+            http: dependencies.storageHttp ?? http,
+            actions: dependencies.storageActions ?? actions,
+        }),
         catalog: createCatalogApi({ http }),
         rateLimiter: dependencies.rateLimiter,
     };
@@ -132,5 +162,6 @@ export type { CreatePlacementGroupInput, PlacementGroupApi } from './resources/p
 export type { CreatePrimaryIpInput, PrimaryIpApi } from './resources/primary-ips.js';
 export type { CreateServerInput, ServerApi } from './resources/servers.js';
 export type { CreateSshKeyInput, SshKeyApi } from './resources/ssh-keys.js';
+export type { CreateStorageBoxInput, StorageBoxApi } from './resources/storage-boxes.js';
 export type { CreateVolumeInput, VolumeApi } from './resources/volumes.js';
 export * from './types.js';

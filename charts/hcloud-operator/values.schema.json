@@ -10,6 +10,7 @@
         "existingSecret": { "type": "string" },
         "existingSecretKey": { "type": "string", "minLength": 1 },
         "apiUrl": { "type": "string", "pattern": "^https?://" },
+        "storageApiUrl": { "type": "string", "pattern": "^https?://" },
         "timeoutMs": { "type": "integer", "minimum": 1000 },
         "requestsPerHour": { "type": "integer", "minimum": 60, "maximum": 3600 },
         "actionTimeoutMs": { "type": "integer", "minimum": 1000 }
@@ -28,7 +29,7 @@
               "HetznerServer", "HetznerSSHKey", "HetznerVolume", "HetznerNetwork",
               "HetznerFirewall", "HetznerLoadBalancer", "HetznerFloatingIP",
               "HetznerPrimaryIP", "HetznerPlacementGroup", "HetznerCertificate",
-              "HetznerImage"
+              "HetznerImage", "HetznerStorageBox"
             ]
           },
           "uniqueItems": true

@@ -67,8 +67,8 @@ Two alerts worth having:
 ## Logs
 
 One JSON object per line. `controller.logLevel` (`debug`, `info`, `warn`,
-`error`). The Hetzner token, generated root passwords and certificate private
-keys are never logged.
+`error`). The Hetzner token, generated root passwords, the throwaway Storage
+Box password and certificate private keys are never logged.
 
 ```bash
 kubectl -n hcloud-operator logs deploy/hcloud-operator -f | jq -c 'select(.level != "debug")'
@@ -192,6 +192,7 @@ binary directly.
 | --- | --- | --- |
 | `HETZNER_TOKEN` | *(required)* | API token |
 | `HETZNER_API_URL` | `https://api.hetzner.cloud/v1` | Must be `https`, except loopback |
+| `HETZNER_STORAGE_API_URL` | `https://api.hetzner.com/v1` | Storage Box API; same token, same `https` rule |
 | `HETZNER_TIMEOUT_MS` | `30000` | Per-request timeout |
 | `HETZNER_REQUESTS_PER_HOUR` | `3000` | Self-imposed budget, under Hetzner's 3600 |
 | `ACTION_TIMEOUT_MS` | `600000` | How long to wait for a Hetzner action |

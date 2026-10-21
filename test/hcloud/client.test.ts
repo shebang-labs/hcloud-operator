@@ -12,6 +12,7 @@ describe('createHetznerCloud', () => {
     const hcloud = createHetznerCloud({
         token: 'token',
         baseUrl: 'https://api.hetzner.cloud/v1',
+        storageBaseUrl: 'https://api.hetzner.com/v1',
         requestsPerHour: 1_200,
         metrics: createMetrics(),
     });
@@ -29,6 +30,7 @@ describe('createHetznerCloud', () => {
             'placementGroups',
             'certificates',
             'images',
+            'storageBoxes',
             'catalog',
         ] as const) {
             expect(hcloud[group], group).toBeDefined();
@@ -36,7 +38,7 @@ describe('createHetznerCloud', () => {
     });
 
     it('shares one rate limiter across every group, sized from the config', () => {
-        // Per-group limiters would let eleven controllers spend eleven budgets.
+        // Per-group limiters would let twelve controllers spend twelve budgets.
         expect(hcloud.rateLimiter).toBeDefined();
         expect(hcloud.rateLimiter.available).toBe(20); // 1200/hour is 20/minute.
     });

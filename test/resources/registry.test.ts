@@ -1,5 +1,5 @@
 /**
- * The registry is what turns eleven adapters into an operator. These checks
+ * The registry is what turns twelve adapters into an operator. These checks
  * catch the mistakes that are otherwise invisible until a cluster rejects the
  * manifests: a duplicated plural, a short name that collides, or a kind that
  * exists in code but has no CRD.
@@ -40,6 +40,7 @@ describe('buildKinds', () => {
             'HetznerPrimaryIP',
             'HetznerSSHKey',
             'HetznerServer',
+            'HetznerStorageBox',
             'HetznerVolume',
         ]);
     });

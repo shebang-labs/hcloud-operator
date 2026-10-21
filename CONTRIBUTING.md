@@ -28,7 +28,7 @@ HETZNER_TOKEN=... LEADER_ELECTION_ENABLED=false npm start
 ## Where things live
 
 ```
-src/framework/       the generic reconcile engine, shared by all eleven kinds
+src/framework/       the generic reconcile engine, shared by all twelve kinds
 src/resources/       one adapter per Hetzner resource; the only provider-specific logic
 src/hcloud/          the Hetzner Cloud API client
 src/kube/            Kubernetes plumbing: store, conditions, events, leader election

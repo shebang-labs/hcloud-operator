@@ -1,5 +1,5 @@
 /**
- * The reconcile engine is the code every one of the eleven kinds runs through,
+ * The reconcile engine is the code every one of the twelve kinds runs through,
  * so its guarantees are tested once, here, against a deliberately trivial
  * adapter — the SSH key. What is being checked is never "does an SSH key work",
  * it is "does the framework hold its promises":

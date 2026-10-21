@@ -154,6 +154,33 @@ export interface Volume extends Labelled {
     labels?: Record<string, string>;
 }
 
+export interface StorageBoxAccessSettings {
+    reachable_externally?: boolean;
+    samba_enabled?: boolean;
+    ssh_enabled?: boolean;
+    webdav_enabled?: boolean;
+    zfs_enabled?: boolean;
+}
+
+export interface StorageBox extends Labelled {
+    id: number;
+    name: string;
+    /** `active` once usable; `initializing` while Hetzner provisions it. */
+    status: string;
+    storage_box_type?: { name?: string; size?: number };
+    location?: LocationRef;
+    access_settings?: StorageBoxAccessSettings;
+    /** Login name for SSH, SFTP, rsync and Samba, e.g. "u12345". */
+    username?: string | null;
+    /** Hostname to connect to, e.g. "u12345.your-storagebox.de". */
+    server?: string | null;
+    /** Bytes in use, split into data and snapshots. */
+    stats?: { size?: number; size_data?: number; size_snapshots?: number };
+    protection?: Protection;
+    created?: string;
+    labels?: Record<string, string>;
+}
+
 export interface NetworkSubnet {
     type: string;
     ip_range?: string;

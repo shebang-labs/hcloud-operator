@@ -1,0 +1,222 @@
+# Kind: HetznerStorageBox  (hcloud.shebanglabs.io/v1alpha1)
+#
+# This file is the source of truth for the API contract. The TypeScript types
+# in src/resources/ mirror it, and test/manifests/ checks that they agree.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hetznerstorageboxes.hcloud.shebanglabs.io
+  labels:
+    app.kubernetes.io/name: hcloud-operator
+spec:
+  group: hcloud.shebanglabs.io
+  scope: Namespaced
+  names:
+    kind: HetznerStorageBox
+    listKind: HetznerStorageBoxList
+    plural: hetznerstorageboxes
+    singular: hetznerstoragebox
+    shortNames:
+      - hsb
+    categories:
+      - hcloud
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .status.storageBoxType
+        - name: Location
+          type: string
+          jsonPath: .status.location
+        - name: Server
+          type: string
+          jsonPath: .status.server
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: ID
+          type: integer
+          jsonPath: .status.id
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+        - name: Message
+          type: string
+          jsonPath: .status.message
+          priority: 1
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            A Hetzner Storage Box. Served by api.hetzner.com rather than the Cloud API, with the
+            same project token.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - storageBoxType
+                - location
+              properties:
+                storageBoxType:
+                  type: string
+                  description: >-
+                    The Storage Box type, e.g. "bx11". Can be changed; Hetzner refuses a type too
+                    small for the data already stored.
+                location:
+                  type: string
+                  description: Where to create the Storage Box, e.g. "fsn1". Immutable.
+                sshKeyRefs:
+                  type: array
+                  description: >-
+                    SSH keys whose public keys are installed at create. Create-only: Hetzner does
+                    not return the keys and has no call that changes them, so editing this list
+                    later has no effect. No password is kept; the operator sends a random one,
+                    because create requires it, and discards it.
+                  items:
+                    type: object
+                    description: Set exactly one of name, hetznerName or id.
+                    properties:
+                      name:
+                        type: string
+                        description: Name of a HetznerSSHKey custom resource.
+                      namespace:
+                        type: string
+                        description: Namespace of that custom resource. Defaults to this object's namespace.
+                      hetznerName:
+                        type: string
+                        description: Name of an unmanaged SSH key that already exists in the Hetzner project.
+                      id:
+                        type: integer
+                        description: Raw Hetzner id.
+                    oneOf:
+                      - required:
+                          - name
+                      - required:
+                          - hetznerName
+                      - required:
+                          - id
+                accessSettings:
+                  type: object
+                  description: Which ways in are open. Fields left out keep their current value.
+                  properties:
+                    reachableExternally:
+                      type: boolean
+                      description: Allow access from outside Hetzner's network.
+                    sambaEnabled:
+                      type: boolean
+                    sshEnabled:
+                      type: boolean
+                      description: SSH, SFTP, SCP and rsync, on port 23.
+                    webdavEnabled:
+                      type: boolean
+                    zfsEnabled:
+                      type: boolean
+                      description: Show the ZFS snapshot folder.
+                protection:
+                  type: object
+                  description: Hetzner protection flags.
+                  properties:
+                    delete:
+                      type: boolean
+                      description: Refuse deletion until this is turned off.
+                adoptExisting:
+                  type: string
+                  description: >-
+                    Take over a resource that already exists in the Hetzner project instead of
+                    creating one. Accepts a Hetzner name or a numeric id.
+                deletionPolicy:
+                  type: string
+                  enum:
+                    - Delete
+                    - Orphan
+                  default: Delete
+                  description: >-
+                    Delete removes the Hetzner resource with the Kubernetes object. Orphan leaves it
+                    running and only drops the finalizer.
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: >-
+                    Labels to set on the Hetzner resource, on top of the ownership labels the
+                    operator manages.
+            status:
+              type: object
+              properties:
+                storageBoxType:
+                  type: string
+                location:
+                  type: string
+                username:
+                  type: string
+                  description: Login name, e.g. "u12345".
+                server:
+                  type: string
+                  description: Host to connect to. SSH listens on port 23.
+                usedBytes:
+                  type: integer
+                  description: Bytes in use, snapshots included.
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Creating
+                    - Ready
+                    - Updating
+                    - Deleting
+                    - Error
+                id:
+                  type: integer
+                  description: Hetzner numeric id. The link between Kubernetes and Hetzner.
+                hetznerName:
+                  type: string
+                  description: Name the resource has inside the Hetzner project.
+                message:
+                  type: string
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - message
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - 'True'
+                          - 'False'
+                          - Unknown
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer

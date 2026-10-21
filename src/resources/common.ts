@@ -3,7 +3,7 @@
  *
  * These are the pieces that recur across the Hetzner API — delete protection,
  * reverse DNS entries, a reference to another resource — expressed once so the
- * eleven CRDs stay consistent with each other and a user who has learned one
+ * twelve CRDs stay consistent with each other and a user who has learned one
  * has learned them all.
  */
 

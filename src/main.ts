@@ -43,6 +43,7 @@ async function main(): Promise<void> {
     const hcloud = createHetznerCloud({
         token: config.hetznerToken,
         baseUrl: config.hetznerApiUrl,
+        storageBaseUrl: config.hetznerStorageApiUrl,
         timeoutMs: config.hetznerTimeoutMs,
         requestsPerHour: config.hetznerRequestsPerHour,
         actionTimeoutMs: config.actionTimeoutMs,

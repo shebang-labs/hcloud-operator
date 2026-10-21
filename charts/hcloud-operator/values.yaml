@@ -18,6 +18,9 @@ hetzner:
   # -- Base URL of the Hetzner Cloud API. Only change this for a local
   # record/replay proxy; anything other than https is refused at startup.
   apiUrl: https://api.hetzner.cloud/v1
+  # -- Base URL of the Hetzner API that serves Storage Boxes. Same token as
+  # the Cloud API, different host. Same https rule as `apiUrl`.
+  storageApiUrl: https://api.hetzner.com/v1
   # -- Per-request timeout against the Hetzner API, in milliseconds.
   timeoutMs: 30000
   # -- Self-imposed request budget per hour. Hetzner allows 3600 per project;

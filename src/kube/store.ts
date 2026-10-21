@@ -3,7 +3,7 @@
  * resources: read one object, list them, write status, and add or remove the
  * finalizer.
  *
- * Generic over the kind, so all eleven controllers share one implementation and
+ * Generic over the kind, so all twelve controllers share one implementation and
  * the reconcile engine only ever talks to the `ResourceStore` interface — which
  * is what lets every engine test run against an in-memory fake.
  */

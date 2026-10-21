@@ -34,7 +34,8 @@ export type ActionScope =
     | 'floating_ips'
     | 'primary_ips'
     | 'certificates'
-    | 'placement_groups';
+    | 'placement_groups'
+    | 'storage_boxes';
 
 /**
  * The wait was abandoned because the operator is shutting down. The action

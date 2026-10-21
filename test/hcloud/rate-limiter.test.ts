@@ -1,5 +1,5 @@
 /**
- * The rate limiter exists so eleven controllers cannot exhaust a Hetzner
+ * The rate limiter exists so twelve controllers cannot exhaust a Hetzner
  * project's 3600 requests per hour and starve everything else using the same
  * token. Its clock and sleep are injected, so these tests run instantly and
  * deterministically rather than actually waiting.

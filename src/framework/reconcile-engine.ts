@@ -21,8 +21,8 @@
  *   7. Found -> sync ownership labels, let the adapter converge the rest,
  *      project reality into status.
  *
- * Every step above is identical for all eleven kinds, which is exactly why it
- * lives here instead of being written out eleven times.
+ * Every step above is identical for all twelve kinds, which is exactly why it
+ * lives here instead of being written out twelve times.
  */
 
 import { HetznerApiError } from '../hcloud/errors.js';
@@ -66,7 +66,7 @@ import type { ReconcileContext, ReconcileResult, ResourceAdapter, UpdateOutcome 
  * The common fields are typed; the kind-specific ones arrive already typed from
  * `adapter.project()` and are carried through as an open record. Keeping the
  * patch loosely typed *here* — and only here — is what lets one engine serve
- * eleven different status schemas without eleven copies of this class.
+ * twelve different status schemas without twelve copies of this class.
  */
 type StatusPatch = Omit<Partial<CommonStatus>, 'conditions'> &
     Record<string, unknown> & {

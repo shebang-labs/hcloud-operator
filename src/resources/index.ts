@@ -1,7 +1,7 @@
 /**
  * The registry: every kind this operator serves.
  *
- * Adding a twelfth Hetzner resource means writing one adapter and adding one
+ * Adding another Hetzner resource means writing one adapter and adding one
  * line to `buildKinds` below. Nothing in `src/framework/` changes — that is the
  * whole point of the adapter contract.
  *
@@ -23,6 +23,7 @@ import { createPlacementGroupAdapter } from './placement-group.js';
 import { createPrimaryIpAdapter } from './primary-ip.js';
 import { createServerAdapter } from './server/index.js';
 import { createSshKeyAdapter } from './ssh-key.js';
+import { createStorageBoxAdapter } from './storage-box.js';
 import { createVolumeAdapter } from './volume.js';
 
 export interface RegistryDependencies {
@@ -49,6 +50,9 @@ export function buildKinds({ hcloud, secrets }: RegistryDependencies): KindRegis
 
         // Load balancers reference servers, networks and certificates.
         defineKind(createLoadBalancerAdapter(hcloud.loadBalancers)),
+
+        // Storage Boxes reference SSH keys, and live on api.hetzner.com.
+        defineKind(createStorageBoxAdapter(hcloud.storageBoxes, hcloud.sshKeys)),
     ];
 }
 
@@ -63,4 +67,5 @@ export * from './placement-group.js';
 export * from './primary-ip.js';
 export * from './server/index.js';
 export * from './ssh-key.js';
+export * from './storage-box.js';
 export * from './volume.js';
