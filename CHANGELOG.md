@@ -12,6 +12,23 @@ Internal package layout is not part of it.
 
 ## [Unreleased]
 
+### Added
+
+- `HetznerStorageBox` (short name `hsb`): a Storage Box with its type, location,
+  SSH keys, access settings (SSH, Samba, WebDAV, ZFS folder, external
+  reachability) and delete protection. The type, access settings and protection
+  converge; the location is immutable. SSH keys are installed at create only,
+  because the API neither returns nor changes them afterwards.
+- The Storage Box API requires a password on create. The operator sends a
+  random one that meets Hetzner's policy and keeps it nowhere, so access is by
+  SSH key; Hetzner's `reset_password` action is the way back to a password.
+- Storage Boxes are served by `api.hetzner.com`, not the Cloud API host, with
+  the same project token. The host is set by `HETZNER_STORAGE_API_URL` (chart
+  value `hetzner.storageApiUrl`, default `https://api.hetzner.com/v1`) and must
+  be `https`, like `HETZNER_API_URL`. Both hosts share one request budget.
+- A new CRD, so apply the CRDs before upgrading: Helm installs them but never
+  upgrades them. The chart's RBAC gains `hetznerstorageboxes`.
+
 ## [1.3.0] — 2026-10-12
 
 ### Fixed

@@ -25,6 +25,7 @@ So every relationship has exactly one owner, and only the owner may declare it.
 | load balancer serves a certificate| `HetznerLoadBalancer.spec.services[].http.certificateRefs` |
 | load balancer joins a network     | `HetznerLoadBalancer.spec.networkRef` |
 | snapshot taken from a server      | `HetznerImage.spec.sourceServerRef`  |
+| Storage Box's SSH keys            | `HetznerStorageBox.spec.sshKeyRefs` (create only) |
 
 That is why `HetznerServer` has no `volumeRefs` and no `firewallRefs`: those
 live on the other side, and the CRD schema does not accept them.

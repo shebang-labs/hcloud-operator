@@ -159,6 +159,7 @@ Tags: `1.2.3` (a release), `latest` (the newest release), `dev` (tip of `main`),
 | `HetznerPlacementGroup` | `hpg`   | Spread groups                                                                  |
 | `HetznerCertificate`    | `hcert` | Uploaded (from a Secret) and Hetzner-managed Let's Encrypt                     |
 | `HetznerImage`          | `himg`  | Snapshots of a server's disk                                                   |
+| `HetznerStorageBox`     | `hsb`   | Type, location, SSH keys (create only), access settings, protection; served by `api.hetzner.com` |
 
 `kubectl explain hetznerserver.spec` shows every field with its documentation;
 the CRDs are the source of truth. Working examples for every kind are in
