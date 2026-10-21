@@ -65,6 +65,8 @@ spec:
                   key: {{ include "hcloud-operator.tokenSecretKey" . }}
             - name: HETZNER_API_URL
               value: {{ .Values.hetzner.apiUrl | quote }}
+            - name: HETZNER_STORAGE_API_URL
+              value: {{ .Values.hetzner.storageApiUrl | quote }}
             - name: HETZNER_TIMEOUT_MS
               value: {{ .Values.hetzner.timeoutMs | quote }}
             - name: HETZNER_REQUESTS_PER_HOUR

@@ -1,5 +1,5 @@
 /**
- * The eleven endpoint modules, exercised against the in-memory API.
+ * The endpoint modules, exercised against the in-memory API.
  *
  * These tests are about the *wire format*: the paths, the snake_case payload
  * keys, and the response unwrapping. A mistake here is invisible to every layer
@@ -282,6 +282,73 @@ describe('volumes', () => {
 
         await hcloud.volumes.detach(volume.id);
         expect(api.peek('volumes', volume.id)?.server).toBeNull();
+    });
+});
+
+describe('storage boxes', () => {
+    it('sends the type, location, password, keys and access settings in snake_case', async () => {
+        await hcloud.storageBoxes.create({
+            name: 'backups',
+            storageBoxType: 'bx11',
+            location: 'fsn1',
+            password: 'Secret-123',
+            sshKeys: ['ssh-ed25519 AAAA backup'],
+            accessSettings: { ssh_enabled: true, samba_enabled: false },
+        });
+
+        expect(api.lastBody('POST /storage_boxes')).toEqual({
+            name: 'backups',
+            storage_box_type: 'bx11',
+            location: 'fsn1',
+            password: 'Secret-123',
+            ssh_keys: ['ssh-ed25519 AAAA backup'],
+            access_settings: { ssh_enabled: true, samba_enabled: false },
+        });
+    });
+
+    it('changes access settings, type and protection through actions', async () => {
+        const box = await hcloud.storageBoxes.create({
+            name: 'backups',
+            storageBoxType: 'bx11',
+            location: 'fsn1',
+            password: 'Secret-123',
+        });
+
+        await hcloud.storageBoxes.updateAccessSettings(box.id, { ssh_enabled: true });
+        await hcloud.storageBoxes.changeType(box.id, 'bx21');
+        await hcloud.storageBoxes.changeProtection(box.id, { delete: true });
+
+        const stored = api.peek('storage_boxes', box.id);
+        expect(stored?.access_settings).toMatchObject({ ssh_enabled: true });
+        expect(stored?.storage_box_type).toMatchObject({ name: 'bx21' });
+        expect(stored?.protection).toEqual({ delete: true });
+        expect(api.lastBody('POST /storage_boxes/' + box.id + '/actions/change_type')).toEqual({
+            storage_box_type: 'bx21',
+        });
+    });
+
+    it('polls its actions on the Storage Box action endpoint', async () => {
+        const slow = new FakeHetznerApi({ actionPolls: 1 });
+        const client = assembleHetznerCloud({
+            http: slow,
+            rateLimiter: new RateLimiter({ requestsPerHour: 3_600 }),
+            actions: createActionTracker({
+                http: slow,
+                pollIntervalMs: 0,
+                maxPollIntervalMs: 0,
+                sleep: async () => undefined,
+            }),
+        });
+        const box = await client.storageBoxes.create({
+            name: 'backups',
+            storageBoxType: 'bx11',
+            location: 'fsn1',
+            password: 'Secret-123',
+        });
+        slow.reset();
+
+        expect(await client.storageBoxes.delete(box.id)).toBe(true);
+        expect(slow.countRequests('GET /storage_boxes/actions/')).toBeGreaterThan(0);
     });
 });
 

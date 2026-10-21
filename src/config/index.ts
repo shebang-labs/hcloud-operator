@@ -16,6 +16,11 @@ export interface OperatorConfig {
     readonly hetznerToken: string;
     /** Base URL of the Hetzner Cloud API. Overridable so tests can point elsewhere. */
     readonly hetznerApiUrl: string;
+    /**
+     * Base URL of the Hetzner API that serves Storage Boxes. It is a different
+     * host from the Cloud API, but takes the same project token.
+     */
+    readonly hetznerStorageApiUrl: string;
     /** Per-request timeout against the Hetzner API. */
     readonly hetznerTimeoutMs: number;
     /**
@@ -138,20 +143,20 @@ function readLogLevel(env: NodeJS.ProcessEnv): LogLevel {
  * Loopback is allowed because a local record/replay proxy is a legitimate
  * development setup and never leaves the host.
  */
-function readApiUrl(env: NodeJS.ProcessEnv): string {
-    const raw = env.HETZNER_API_URL?.trim() || 'https://api.hetzner.cloud/v1';
+function readApiUrl(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+    const raw = env[name]?.trim() || fallback;
 
     let parsed: URL;
     try {
         parsed = new URL(raw);
     } catch {
-        throw new ConfigError(`HETZNER_API_URL must be an absolute URL, got "${raw}"`);
+        throw new ConfigError(`${name} must be an absolute URL, got "${raw}"`);
     }
 
     const isLoopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(parsed.hostname);
     if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
         throw new ConfigError(
-            `HETZNER_API_URL must use https (got "${parsed.protocol}//"): the Hetzner token is ` +
+            `${name} must use https (got "${parsed.protocol}//"): the Hetzner token is ` +
                 'sent as a bearer credential on every request and must never travel in plaintext. ' +
                 'Plain http is permitted only for a loopback address.',
         );
@@ -214,7 +219,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OperatorConfig
 
     const config: Omit<OperatorConfig, 'toJSON'> = {
         hetznerToken,
-        hetznerApiUrl: readApiUrl(env),
+        hetznerApiUrl: readApiUrl(env, 'HETZNER_API_URL', 'https://api.hetzner.cloud/v1'),
+        hetznerStorageApiUrl: readApiUrl(
+            env,
+            'HETZNER_STORAGE_API_URL',
+            'https://api.hetzner.com/v1',
+        ),
         hetznerTimeoutMs: readNumber(env, 'HETZNER_TIMEOUT_MS', 30_000),
         hetznerRequestsPerHour: readNumber(env, 'HETZNER_REQUESTS_PER_HOUR', 3_000, {
             min: 60,

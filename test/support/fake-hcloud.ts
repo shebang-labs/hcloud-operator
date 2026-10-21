@@ -56,6 +56,8 @@ const COLLECTIONS: Array<[string, string]> = [
     ['placement_groups', 'placement_group'],
     ['certificates', 'certificate'],
     ['images', 'image'],
+    // Served by api.hetzner.com in production; one fake stands in for both hosts.
+    ['storage_boxes', 'storage_box'],
 ];
 
 export class FakeHetznerApi implements HttpClient {
@@ -259,9 +261,10 @@ export class FakeHetznerApi implements HttpClient {
                 return { [collection.singular]: item };
             case 'DELETE':
                 collection.items.delete(id);
-                // Servers answer a delete with an action; most others send 204.
-                return collection.plural === 'servers'
-                    ? { action: this.newAction('delete_server', id) }
+                // Servers and Storage Boxes answer a delete with an action;
+                // most others send 204.
+                return ['servers', 'storage_boxes'].includes(collection.plural)
+                    ? { action: this.newAction(`delete_${collection.singular}`, id) }
                     : {};
             default:
                 throw notFound(path);
@@ -509,6 +512,25 @@ export class FakeHetznerApi implements HttpClient {
                     os_flavor: 'ubuntu',
                     protection: { delete: false },
                 };
+            case 'storage_boxes':
+                return {
+                    ...base,
+                    status: 'active',
+                    storage_box_type: { name: body.storage_box_type, size: 1_099_511_627_776 },
+                    location: { id: 1, name: body.location },
+                    access_settings: {
+                        reachable_externally: false,
+                        samba_enabled: false,
+                        ssh_enabled: false,
+                        webdav_enabled: false,
+                        zfs_enabled: false,
+                        ...((body.access_settings as Json) ?? {}),
+                    },
+                    username: `u${id}`,
+                    server: `u${id}.your-storagebox.de`,
+                    stats: { size: 0, size_data: 0, size_snapshots: 0 },
+                    protection: { delete: false },
+                };
             default:
                 return base;
         }
@@ -607,9 +629,11 @@ export class FakeHetznerApi implements HttpClient {
                 item.status = 'running';
                 break;
             case 'change_type':
-                // Both servers and load balancers have a change_type action.
+                // Servers, load balancers and Storage Boxes all have a change_type action.
                 if (collection.plural === 'load_balancers') {
                     item.load_balancer_type = { id: 9, name: body.load_balancer_type };
+                } else if (collection.plural === 'storage_boxes') {
+                    item.storage_box_type = { name: body.storage_box_type };
                 } else {
                     item.server_type = { id: 9, name: body.server_type };
                 }
@@ -674,6 +698,11 @@ export class FakeHetznerApi implements HttpClient {
                 break;
             case 'remove_from_placement_group':
                 item.placement_group = null;
+                break;
+
+            /* Storage Boxes */
+            case 'update_access_settings':
+                item.access_settings = { ...(item.access_settings as Json), ...body };
                 break;
 
             /* Volumes */

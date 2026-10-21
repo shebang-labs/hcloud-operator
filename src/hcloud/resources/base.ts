@@ -4,9 +4,10 @@
  * The Hetzner Cloud API is pleasantly regular: a collection lives at
  * `/<plural>`, a single object comes back under the singular key, actions live
  * at `/<plural>/<id>/actions/<name>`, and labels are filtered with
- * `label_selector`. Writing that eleven times would be eleven chances to get a
- * pagination call or a 404 branch subtly wrong, so it is written once here and
- * each resource module adds only what is genuinely its own.
+ * `label_selector`. Writing that once per resource would be one more chance
+ * each time to get a pagination call or a 404 branch subtly wrong, so it is
+ * written once here and each resource module adds only what is genuinely its
+ * own. The Storage Box API on api.hetzner.com follows the same conventions.
  */
 
 import type { ActionScope, ActionTracker } from '../actions.js';

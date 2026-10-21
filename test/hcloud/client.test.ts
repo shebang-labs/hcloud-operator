@@ -12,6 +12,7 @@ describe('createHetznerCloud', () => {
     const hcloud = createHetznerCloud({
         token: 'token',
         baseUrl: 'https://api.hetzner.cloud/v1',
+        storageBaseUrl: 'https://api.hetzner.com/v1',
         requestsPerHour: 1_200,
         metrics: createMetrics(),
     });
@@ -29,6 +30,7 @@ describe('createHetznerCloud', () => {
             'placementGroups',
             'certificates',
             'images',
+            'storageBoxes',
             'catalog',
         ] as const) {
             expect(hcloud[group], group).toBeDefined();
